@@ -161,7 +161,7 @@ private val CATEGORIES = listOf("Подключение", "Подписки", "�
                             GlassButton("@your_bot", height = 40.dp, fontSize = 13) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/your_bot"))) } }
                         }
                         SettingsDivider()
-                        Text("Основано на DUORAY · GPL-3.0-only", fontWeight = FontWeight.SemiBold)
+                        Text("Основано на KAWARAY · GPL-3.0-only", fontWeight = FontWeight.SemiBold)
                         Text("Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Исходный код открыт на GitHub, он и лицензии также вложены в приложение.", color = Muted, fontSize = 12.sp)
                         Spacer(Modifier.height(6.dp))
                         GlassButton("Исходный код на GitHub", Modifier.fillMaxWidth(), primary = true, height = 44.dp) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/georgiyauto/kawa_ray"))) } }

@@ -1,0 +1,142 @@
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+fn main() {
+    let config = slint_build::CompilerConfiguration::new().with_style("material".into());
+    slint_build::compile_with_config("ui/app.slint", config).expect("slint build failed");
+    embed_flags();
+    embed_build_id();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_windows_icon();
+    }
+}
+
+/// KAWA_BUILD: the git commit this binary is built from ("-dirty" with
+/// uncommitted changes). Updates compare it with the manifest's, so a
+/// re-uploaded build of the same commit is not offered again.
+fn embed_build_id() {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    println!("cargo:rerun-if-env-changed=KAWA_BUILD");
+    let id = if let Some(v) = std::env::var("KAWA_BUILD").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) { v } else { match git(&["rev-parse", "--short=12", "HEAD"]) {
+        Some(commit)
+            if git(&["status", "--porcelain", "--untracked-files=no"])
+                .is_some_and(|s| !s.is_empty()) =>
+        {
+            format!("{commit}-dirty")
+        }
+        Some(commit) => commit,
+        None => "unknown".into(),
+    } };
+    println!("cargo:rustc-env=KAWA_BUILD={id}");
+    // A commit moves the branch ref, not HEAD itself.
+    for path in [
+        "../../.git/HEAD",
+        "../../.git/index",
+        "../../.git/refs/heads",
+        "../../.git/packed-refs",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+    }
+}
+
+/// Writes a .res with the app icon (RT_ICON + RT_GROUP_ICON) from assets/kawaray.ico
+/// and hands it to the linker, so kawaray.exe itself carries the icon (Explorer,
+/// taskbar, shortcuts). No resource compiler needed: the .res format is simple.
+fn embed_windows_icon() {
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let ico_path = manifest.join("assets/kawaray.ico");
+    println!("cargo:rerun-if-changed={}", ico_path.display());
+    let ico = std::fs::read(&ico_path).expect("assets/kawaray.ico");
+    let u16le = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+    let u32le = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+    let count = u16le(&ico, 4) as usize;
+
+    fn entry(res: &mut Vec<u8>, kind: u16, id: u16, data: &[u8]) {
+        res.extend((data.len() as u32).to_le_bytes()); // DataSize
+        res.extend(32u32.to_le_bytes()); // HeaderSize
+        res.extend([0xFF, 0xFF]);
+        res.extend(kind.to_le_bytes()); // TYPE (ordinal)
+        res.extend([0xFF, 0xFF]);
+        res.extend(id.to_le_bytes()); // NAME (ordinal)
+        res.extend(0u32.to_le_bytes()); // DataVersion
+        res.extend(0x1030u16.to_le_bytes()); // MemoryFlags: moveable | pure | discardable
+        res.extend(0x0409u16.to_le_bytes()); // LanguageId
+        res.extend(0u32.to_le_bytes()); // Version
+        res.extend(0u32.to_le_bytes()); // Characteristics
+        res.extend(data);
+        while !res.len().is_multiple_of(4) {
+            res.push(0);
+        }
+    }
+
+    let mut res = vec![0u8; 32];
+    res[4] = 32; // the mandatory empty first entry
+    res[8..12].copy_from_slice(&[0xFF, 0xFF, 0, 0]);
+    res[12..16].copy_from_slice(&[0xFF, 0xFF, 0, 0]);
+    let mut group = vec![0u8, 0, 1, 0];
+    group.extend((count as u16).to_le_bytes());
+    for i in 0..count {
+        let e = 6 + 16 * i;
+        let (size, offset) = (u32le(&ico, e + 8) as usize, u32le(&ico, e + 12) as usize);
+        let id = (i + 1) as u16;
+        entry(&mut res, 3, id, &ico[offset..offset + size]); // RT_ICON
+        group.extend(&ico[e..e + 4]); // width, height, colors, reserved
+        group.extend(&ico[e + 4..e + 8]); // planes, bit count
+        group.extend((size as u32).to_le_bytes());
+        group.extend(id.to_le_bytes());
+    }
+    entry(&mut res, 14, 1, &group); // RT_GROUP_ICON
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("kawaray-icon.res");
+    std::fs::write(&out, res).unwrap();
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+        let object = out.with_extension("o");
+        let status = std::process::Command::new("windres")
+            .args(["-J", "res", "-O", "coff"])
+            .arg(&out)
+            .arg(&object)
+            .status()
+            .expect("windres is required for the GNU Windows build");
+        assert!(status.success(), "windres failed");
+        println!("cargo:rustc-link-arg-bins={}", object.display());
+    } else {
+        println!("cargo:rustc-link-arg-bins={}", out.display());
+    }
+}
+
+/// Generates `flag_png(code)` over assets/flags/<iso>.png (Twemoji, CC-BY 4.0).
+fn embed_flags() {
+    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("assets/flags");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut entries: Vec<_> = std::fs::read_dir(&dir)
+        .expect("assets/flags")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "png"))
+        .collect();
+    entries.sort();
+    let mut src =
+        String::from("pub fn flag_png(code: &str) -> Option<&'static [u8]> {\n    match code {\n");
+    for p in entries {
+        let code = p
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_ascii_uppercase();
+        writeln!(
+            src,
+            "        {code:?} => Some(include_bytes!({:?})),",
+            p.display().to_string()
+        )
+        .unwrap();
+    }
+    src.push_str("        _ => None,\n    }\n}\n");
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("flags.rs");
+    std::fs::write(out, src).unwrap();
+}

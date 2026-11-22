@@ -1287,82 +1287,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edf234dd1594d6dd434a8fb8cada51ddbbc593e40e4a01556a0b31c62da2775b"
 
 [[package]]
-name = "duoray-core"
-version = "0.4.38"
-dependencies = [
- "anyhow",
- "base64",
- "directories",
- "fastrand",
- "percent-encoding",
- "serde",
- "serde_json",
- "tempfile",
- "ureq",
- "url",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "duoray-gui"
-version = "0.4.38"
-dependencies = [
- "anyhow",
- "arboard",
- "chrono",
- "directories",
- "duoray-core",
- "ed25519-dalek",
- "fastrand",
- "libc",
- "png",
- "regex",
- "security-framework",
- "serde",
- "serde_json",
- "sha2",
- "slint",
- "slint-build",
- "socket2",
- "ureq",
- "url",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "duoray-helper"
-version = "0.4.38"
-dependencies = [
- "anyhow",
- "duoray-core",
- "duotun",
- "libc",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "windows-service",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "duotun"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "libc",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "tun-rs",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2824,6 +2748,82 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kawaray-core"
+version = "0.4.38"
+dependencies = [
+ "anyhow",
+ "base64",
+ "directories",
+ "fastrand",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "kawaray-gui"
+version = "0.4.38"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "chrono",
+ "directories",
+ "ed25519-dalek",
+ "fastrand",
+ "kawaray-core",
+ "libc",
+ "png",
+ "regex",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2",
+ "slint",
+ "slint-build",
+ "socket2",
+ "ureq",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "kawaray-helper"
+version = "0.4.38"
+dependencies = [
+ "anyhow",
+ "kawaray-core",
+ "kawatun",
+ "libc",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "windows-service",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "kawatun"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "tun-rs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

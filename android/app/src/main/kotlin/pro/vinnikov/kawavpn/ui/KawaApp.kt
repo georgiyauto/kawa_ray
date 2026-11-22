@@ -213,7 +213,7 @@ internal val Glass: Brush get() = if (Palette.light) Brush.verticalGradient(list
             if (licenses) {
                 val notice = remember { context.assets.open("THIRD-PARTY-NOTICES.md").bufferedReader().use { it.readText() } }
                 AlertDialog(onDismissRequest = { licenses = false }, title = { Text("Лицензии Kawa VPN") }, text = {
-                    Text("Kawa VPN — модифицированная версия DUORAY: https://github.com/m-a-prod/DUORAY. Полные тексты лицензий находятся в assets APK. Соответствующий исходный код включён в assets/source.zip.\n\n$notice", modifier = Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()), fontSize = 13.sp)
+                    Text("Kawa VPN — модифицированная версия KAWARAY: https://github.com/m-a-prod/DUORAY. Полные тексты лицензий находятся в assets APK. Соответствующий исходный код включён в assets/source.zip.\n\n$notice", modifier = Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()), fontSize = 13.sp)
                 }, confirmButton = { TextButton(onClick = { licenses = false }) { Text("Закрыть") } })
             }
         } }

@@ -7,8 +7,8 @@ cd "$(dirname "$0")/../.."
 TARGET=x86_64-pc-windows-msvc
 if [ "${KAWA_SKIP_BUILD:-0}" != 1 ]; then
     case "$(uname -s)" in
-        MINGW*|MSYS*) cargo build --locked --release --target "$TARGET" -p duoray-gui -p duoray-helper ;;
-        *) cargo xwin build --locked --release --target "$TARGET" -p duoray-gui -p duoray-helper ;;
+        MINGW*|MSYS*) cargo build --locked --release --target "$TARGET" -p kawaray-gui -p kawaray-helper ;;
+        *) cargo xwin build --locked --release --target "$TARGET" -p kawaray-gui -p kawaray-helper ;;
     esac
 fi
 stage=packaging/windows/stage-x64
@@ -24,7 +24,7 @@ copy_notices "$stage"
 mv "$stage/LICENSE" "$stage/LICENSE.txt"
 # Optional publisher signing is performed locally, before NSIS/portable packaging.
 # KAWA_SIGN_COMMAND continues to sign installer/uninstaller through signing.nsh.
-(cd packaging/windows && makensis -INPUTCHARSET UTF8 -V2 -DVERSION="$VERSION" -DARCH=x64 duoray.nsi)
+(cd packaging/windows && makensis -INPUTCHARSET UTF8 -V2 -DVERSION="$VERSION" -DARCH=x64 kawaray.nsi)
 python3 - "$stage" "dist/KawaVPN-$VERSION-windows-x64-portable.zip" <<'PY'
 import pathlib,sys,zipfile
 with zipfile.ZipFile(sys.argv[2],'w',zipfile.ZIP_DEFLATED) as z:

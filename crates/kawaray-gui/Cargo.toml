@@ -1,0 +1,40 @@
+[package]
+name = "kawaray-gui"
+version = "0.4.38"
+edition = "2024"
+description = "Kawa VPN desktop client (Slint GUI over xray-core)"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "KawaVPN"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+directories = "6.0.0"
+fastrand = "2.5.0"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+kawaray-core = { path = "../kawaray-core" }
+png = "0.18.1"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10"
+slint = { version = "1.18.1", features = ["unstable-winit-030"] }
+socket2 = { version = "0.6.5", features = ["all"] }
+ureq = { version = "3.4.2", features = ["socks-proxy", "json"] }
+url = "2.5.8"
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.189"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Dwm", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_Registry"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0"

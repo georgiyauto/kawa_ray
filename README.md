@@ -35,7 +35,7 @@ Kawa VPN — модифицированная версия [DUORAY](https://gith
 Kawa VPN desktop (Rust / Slint)
   ├─ кабинет, подписки, серверы, настройки
   ├─ Xray: локальный SOCKS с отдельными случайными учётными данными
-  └─ локальное IPC → KawaVPNHelper → DUOTUN → системный TUN
+  └─ локальное IPC → KawaVPNHelper → KAWATUN → системный TUN
 
 Kawa VPN Android (Kotlin / Compose)
   └─ системный VpnService → встроенный Xray и пакетный туннель
@@ -46,12 +46,12 @@ Kawa VPN Android (Kotlin / Compose)
 
 | Каталог | Назначение |
 |---|---|
-| `crates/duoray-core` | Подписки, ссылки, конфигурации Xray, кабинет и протокол помощника |
-| `crates/duoray-gui` | Desktop-приложение, бинарник `KawaVPN` |
-| `crates/duoray-helper` | Системный помощник, бинарник `KawaVPNHelper` |
-| `vendor/DUOTUN` | Исходный код TUN-движка с MIT-лицензией |
+| `crates/kawaray-core` | Подписки, ссылки, конфигурации Xray, кабинет и протокол помощника |
+| `crates/kawaray-gui` | Desktop-приложение, бинарник `KawaVPN` |
+| `crates/kawaray-helper` | Системный помощник, бинарник `KawaVPNHelper` |
+| `vendor/KAWATUN` | Исходный код TUN-движка с MIT-лицензией |
 | `packaging` | Сборка установочных пакетов и проверка подписи |
-| `server/duoray-hub` | Сервис обновлений и диагностики; для своей установки нужна отдельная конфигурация |
+| `server/kawaray-hub` | Сервис обновлений и диагностики; для своей установки нужна отдельная конфигурация |
 | `tools` | Генераторы ресурсов, проверка и создание архива исходников |
 
 ## Установка и платформы
@@ -69,11 +69,11 @@ Kawa VPN Android (Kotlin / Compose)
 
 ## Сборка desktop
 
-Нужен Rust stable. DUOTUN уже включён в `vendor/DUOTUN`; соседние репозитории и закрытые deploy keys не требуются.
+Нужен Rust stable. KAWATUN уже включён в `vendor/KAWATUN`; соседние репозитории и закрытые deploy keys не требуются.
 
 ```sh
 cargo test --locked --workspace
-cargo build --locked --release -p duoray-gui -p duoray-helper
+cargo build --locked --release -p kawaray-gui -p kawaray-helper
 ```
 
 Windows: Rust MSVC с Visual Studio Build Tools либо GNU с MinGW-w64 и windres. Linux: системные библиотеки окон, шрифтов и ввода согласно упаковке/CI. macOS: Xcode Command Line Tools и нужный Rust target.
@@ -89,7 +89,7 @@ python tools/test_source_distribution.py
 python tools/make-source-archive.py --version 0.4.27 --output dist/KawaVPN-0.4.27-source.zip
 ```
 
-В архив входят исходники, vendored DUOTUN, ресурсы, лицензии, lock-файлы и инструкции. `SOURCE-MANIFEST.json` фиксирует SHA-256 каждого файла. Сборочные каталоги, учётные записи, `.env` и приватные ключи исключены.
+В архив входят исходники, vendored KAWATUN, ресурсы, лицензии, lock-файлы и инструкции. `SOURCE-MANIFEST.json` фиксирует SHA-256 каждого файла. Сборочные каталоги, учётные записи, `.env` и приватные ключи исключены.
 
 ## Проверки
 
@@ -99,10 +99,14 @@ Windows 0.4.25: 64 теста интерфейса, 44 ядра, 13 кабине
 
 ## Лицензия и авторство
 
-**GPL-3.0-only** с дополнительным разрешением для Wintun: `LICENSE` и `LICENSE-EXCEPTION.md`. Модификация остаётся свободным ПО; исходные copyright-уведомления сохранены. Оригинальный проект: [DUORAY, m-a-prod](https://github.com/m-a-prod/DUORAY).
+**GPL-3.0-only** с дополнительным разрешением для Wintun: `LICENSE` и `LICENSE-EXCEPTION.md`. Модификация остаётся свободным ПО; исходные copyright-уведомления сохранены. Оригинальный проект: [KAWARAY, m-a-prod](https://github.com/m-a-prod/DUORAY).
 
-DUOTUN — MIT, `vendor/DUOTUN/LICENSE`. Xray-core — MPL-2.0: отдельный исполняемый компонент desktop и часть libXray на Android. Wintun, Slint, шрифты, флаги, карты и остальные зависимости сохраняют свои лицензии; см. `THIRD-PARTY-NOTICES.md` и `THIRD-PARTY-CRATES.txt`. Программа предоставляется без гарантий в пределах условий лицензий.
+KAWATUN — переименованный [DUOTUN](https://github.com/m-a-prod/DUOTUN), MIT, оригинальный текст лицензии в `vendor/KAWATUN/LICENSE`. Xray-core — MPL-2.0: отдельный исполняемый компонент desktop и часть libXray на Android. Wintun, Slint, шрифты, флаги, карты и остальные зависимости сохраняют свои лицензии; см. `THIRD-PARTY-NOTICES.md` и `THIRD-PARTY-CRATES.txt`. Программа предоставляется без гарантий в пределах условий лицензий.
 
 ## О публичной версии
 
-В этом репозитории адреса сервисов Kawa (кабинет, сервер отчётов и обновлений, бот) заменены на заглушки `example.com` и `your_bot`. Чтобы собрать рабочий клиент для своего сервиса, укажите свои адреса в `crates/duoray-core/src/cabinet.rs`, `crates/duoray-gui/src/diag.rs`, `android/app/src/main/kotlin/pro/vinnikov/kawavpn/data/KawaRepository.kt`, `.../account/BillingClient.kt`, `.../diag/Diagnostics.kt` и `android/domain/.../NetworkContract.kt`. Полный исходный код каждой выпущенной сборки также вложен в саму сборку.
+В этом репозитории адреса сервисов Kawa (кабинет, сервер отчётов и обновлений, бот) заменены на заглушки `example.com` и `your_bot`. Чтобы собрать рабочий клиент для своего сервиса, укажите свои адреса в `crates/kawaray-core/src/cabinet.rs`, `crates/kawaray-gui/src/diag.rs`, `android/app/src/main/kotlin/pro/vinnikov/kawavpn/data/KawaRepository.kt`, `.../account/BillingClient.kt`, `.../diag/Diagnostics.kt` и `android/domain/.../NetworkContract.kt`. Полный исходный код каждой выпущенной сборки также вложен в саму сборку.
+
+## Откуда этот код
+
+KawaRay — это не написанный с нуля клиент, а форк **[DUORAY](https://github.com/m-a-prod/DUORAY)** от m-a-prod. Основа клиента — ядро на Rust, интерфейс на Slint, помощник и TUN-движок — взята оттуда; движок **[DUOTUN](https://github.com/m-a-prod/DUOTUN)** здесь просто переименован в KAWATUN. Внутренние имена (`duoray-*` → `kawaray-*`, `DUOTUN` → `KAWATUN`) заменены для единообразия, но авторство, тексты лицензий и copyright-уведомления оригинала сохранены, как того требуют GPL-3.0 и MIT. Своё в Kawa — интерфейс, Liquid Glass, Android-клиент, кабинет и подписки, отчёты и обновления. Спасибо авторам DUORAY и DUOTUN.

@@ -15,7 +15,7 @@ APP="$WORK/Kawa VPN.app"
 export MACOSX_DEPLOYMENT_TARGET=12.0
 [ "$(uname -s)" = Darwin ] || { echo 'Native macOS tools required.' >&2; exit 1; }
 if [ "${KAWA_SKIP_BUILD:-0}" != 1 ]; then
- cargo build --locked --release --target "$TARGET" -p duoray-gui -p duoray-helper
+ cargo build --locked --release --target "$TARGET" -p kawaray-gui -p kawaray-helper
 fi
 [ ! -e "$WORK" ] || { echo "Review/remove existing $WORK before packaging" >&2; exit 1; }
 BIN=${KAWA_MACOS_BIN:-target/$TARGET/release}
@@ -30,9 +30,9 @@ copy_notices "$APP/Contents/Resources"
 ICONSET="$WORK/kawa-vpn.iconset"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
- sips -z "$size" "$size" crates/duoray-gui/ui/assets/kawa-brand.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+ sips -z "$size" "$size" crates/kawaray-gui/ui/assets/kawa-brand.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
  double=$((size * 2))
- sips -z "$double" "$double" crates/duoray-gui/ui/assets/kawa-brand.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+ sips -z "$double" "$double" crates/kawaray-gui/ui/assets/kawa-brand.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/kawa-vpn.icns"
 cat > "$APP/Contents/Info.plist" <<EOF

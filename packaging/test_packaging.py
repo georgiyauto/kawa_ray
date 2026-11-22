@@ -18,12 +18,12 @@ class PackagingContracts(unittest.TestCase):
             self.skipTest('POSIX sh required for executable packaging contract')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ('packaging', 'tools', 'crates/duoray-gui', 'vendor/DUOTUN', 'dist'):
+            for name in ('packaging', 'tools', 'crates/kawaray-gui', 'vendor/KAWATUN', 'dist'):
                 (root / name).mkdir(parents=True, exist_ok=True)
             for name in ('packaging/common.sh', 'tools/make-source-archive.py'):
                 shutil.copyfile(ROOT / name, root / name)
-            (root / 'crates/duoray-gui/Cargo.toml').write_text('version = "0.4.26"\n')
-            for name in ('Cargo.toml', 'LICENSE', 'vendor/DUOTUN/LICENSE'):
+            (root / 'crates/kawaray-gui/Cargo.toml').write_text('version = "0.4.26"\n')
+            for name in ('Cargo.toml', 'LICENSE', 'vendor/KAWATUN/LICENSE'):
                 (root / name).write_text('fixture\n')
             readme = root / 'README.md'
             readme.write_bytes(b'before\n')
@@ -66,7 +66,7 @@ print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest() + '  ' + sys.ar
 
     def test_no_private_checkout_or_publication_in_ci(self):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
-        for forbidden in ('DUOTUN_SSH_KEY', 'm-a-prod/', 'contents: write', 'action-gh-release'):
+        for forbidden in ('KAWATUN_SSH_KEY', 'm-a-prod/', 'contents: write', 'action-gh-release'):
             self.assertNotIn(forbidden, workflow)
         self.assertIn('1.99.0', workflow)
 
@@ -109,10 +109,10 @@ print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest() + '  ' + sys.ar
 
     def test_legal_notices_are_embedded(self):
         common = (ROOT / 'packaging/common.sh').read_text()
-        for required in ('LICENSE-EXCEPTION.md', 'THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-CRATES.txt', 'vendor/DUOTUN/LICENSE', '-source.zip'):
+        for required in ('LICENSE-EXCEPTION.md', 'THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-CRATES.txt', 'vendor/KAWATUN/LICENSE', '-source.zip'):
             self.assertIn(required, common)
-        nsis = (ROOT / 'packaging/windows/duoray.nsi').read_text()
-        self.assertIn('LICENSE-DUOTUN.txt', nsis)
+        nsis = (ROOT / 'packaging/windows/kawaray.nsi').read_text()
+        self.assertIn('LICENSE-KAWATUN.txt', nsis)
         self.assertIn('signing.nsh', nsis)
 
     def test_windows_current_binaries_and_portable(self):

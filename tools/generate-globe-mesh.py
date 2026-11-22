@@ -24,6 +24,6 @@ for lat in range(-89,90,2):
  for j in range(count):
   lon=-180+(j+0.5*(lat%4==1))*360/count
   if land(lat,lon):points.append((lat,lon))
-output=root/'crates/duoray-gui/ui/assets/globe-points.bin'
+output=root/'crates/kawaray-gui/ui/assets/globe-points.bin'
 output.write_bytes(b''.join(struct.pack('<ff',*point) for point in points))
 print('Natural Earth mesh:',len(points),'land points;',output.stat().st_size,'bytes')

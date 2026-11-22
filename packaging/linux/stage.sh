@@ -10,7 +10,7 @@ case "$ARCH" in
 esac
 TARGET=$ARCH-unknown-linux-gnu
 if [ "${KAWA_SKIP_BUILD:-0}" != 1 ]; then
- cargo build --locked --release --target "$TARGET" -p duoray-gui -p duoray-helper
+ cargo build --locked --release --target "$TARGET" -p kawaray-gui -p kawaray-helper
 fi
 BIN=${KAWA_LINUX_BIN:-target/$TARGET/release}
 ROOT=packaging/linux/root-$ARCH
@@ -25,6 +25,6 @@ mv "$ROOT/usr/lib/kawa-vpn/LICENSE" "$ROOT/usr/share/doc/kawa-vpn/LICENSE-xray.t
 chmod 755 "$ROOT/usr/lib/kawa-vpn/xray"
 ln -s ../lib/kawa-vpn/KawaVPN "$ROOT/usr/bin/kawa-vpn"
 install -Dm644 packaging/linux/kawa-vpn.desktop "$ROOT/usr/share/applications/kawa-vpn.desktop"
-install -Dm644 crates/duoray-gui/ui/assets/kawa-brand.png "$ROOT/usr/share/icons/hicolor/256x256/apps/kawa-vpn.png"
+install -Dm644 crates/kawaray-gui/ui/assets/kawa-brand.png "$ROOT/usr/share/icons/hicolor/256x256/apps/kawa-vpn.png"
 source_archive
 copy_notices "$ROOT/usr/share/doc/kawa-vpn"

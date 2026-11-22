@@ -43,7 +43,7 @@ def write_archive(root, output, version):
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", version):
         raise ValueError("version must be a safe semantic version")
     files = dict(source_files(root))
-    for required in ["Cargo.toml", "README.md", "LICENSE", "vendor/DUOTUN/LICENSE"]:
+    for required in ["Cargo.toml", "README.md", "LICENSE", "vendor/KAWATUN/LICENSE"]:
         if required not in files:
             raise ValueError(f"required source file missing: {required}")
     manifest = {"version": version, "algorithm": "sha256", "files": {

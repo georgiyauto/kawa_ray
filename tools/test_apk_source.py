@@ -13,7 +13,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 def fixture(extra=None, duplicate=False):
-    files = {"android/app/src/main/AndroidManifest.xml": b"manifest", "android/native/go.sum.upstream": b"checksums", "vendor/DUOTUN/LICENSE": b"MIT"}
+    files = {"android/app/src/main/AndroidManifest.xml": b"manifest", "android/native/go.sum.upstream": b"checksums", "vendor/KAWATUN/LICENSE": b"MIT"}
     manifest = {"version": "0.4.26", "files": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
@@ -23,7 +23,7 @@ def fixture(extra=None, duplicate=False):
         if duplicate:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
-                archive.writestr("KawaVPN-0.4.26/vendor/DUOTUN/LICENSE", b"different")
+                archive.writestr("KawaVPN-0.4.26/vendor/KAWATUN/LICENSE", b"different")
     return stream.getvalue()
 
 class SourceGate(unittest.TestCase):

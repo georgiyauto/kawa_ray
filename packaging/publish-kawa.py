@@ -21,7 +21,7 @@ import paramiko
 def make_release(installer, version, key_file, notes, build, linux_appimage=None, linux_metadata=None):
     key = serialization.load_pem_private_key(Path(key_file).read_bytes(), password=None)
     public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
-    trusted_source = Path(__file__).resolve().parents[1] / 'crates/duoray-gui/src/update.rs'
+    trusted_source = Path(__file__).resolve().parents[1] / 'crates/kawaray-gui/src/update.rs'
     if public not in trusted_source.read_text(encoding='utf-8'):
         raise ValueError('Signing key does not match this client trust key')
     name = f'KawaVPN-Setup-{version}-x64.exe'

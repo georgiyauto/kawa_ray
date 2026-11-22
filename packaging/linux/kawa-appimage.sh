@@ -16,7 +16,7 @@ APPDIR=$WORK/AppDir
 mkdir -p "$APPDIR" dist
 cp -a "$ROOT/usr" "$APPDIR/"
 cp packaging/linux/kawa-vpn.desktop "$APPDIR/kawa-vpn.desktop"
-cp crates/duoray-gui/ui/assets/kawa-brand.png "$APPDIR/kawa-vpn.png"
+cp crates/kawaray-gui/ui/assets/kawa-brand.png "$APPDIR/kawa-vpn.png"
 ln -s kawa-vpn.png "$APPDIR/.DirIcon"
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh

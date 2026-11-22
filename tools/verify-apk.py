@@ -40,7 +40,7 @@ def verify_source(source, expected_source):
                 raise ValueError("Unsafe source archive path")
             if hashlib.sha256(archive.read(prefix + name)).hexdigest() != digest:
                 raise ValueError(f"Embedded source hash mismatch: {name}")
-        for required in ["android/app/src/main/AndroidManifest.xml", "android/native/go.sum.upstream", "vendor/DUOTUN/LICENSE"]:
+        for required in ["android/app/src/main/AndroidManifest.xml", "android/native/go.sum.upstream", "vendor/KAWATUN/LICENSE"]:
             if required not in manifest["files"]:
                 raise ValueError(f"Incomplete corresponding source: {required}")
         return manifest

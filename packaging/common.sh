@@ -5,7 +5,7 @@ set -eu
 if ! command -v sha256sum >/dev/null 2>&1; then
     sha256sum() { shasum -a 256 "$@"; }
 fi
-VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/duoray-gui/Cargo.toml | head -1 | tr -d '\r')
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/kawaray-gui/Cargo.toml | head -1 | tr -d '\r')
 XRAY_VERSION=v26.3.27
 fetch_checked() {
     url=$1; checksum=$2; destination=$3
@@ -35,7 +35,7 @@ source_archive() {
 copy_notices() {
     install -m644 LICENSE LICENSE-EXCEPTION.md THIRD-PARTY-NOTICES.md THIRD-PARTY-CRATES.txt README-KawaVPN.txt "$1/"
     install -m644 "dist/KawaVPN-$VERSION-source.zip" "$1/"
-    install -m644 vendor/DUOTUN/LICENSE "$1/LICENSE-DUOTUN.txt"
+    install -m644 vendor/KAWATUN/LICENSE "$1/LICENSE-KAWATUN.txt"
 }
 
 extract_runtime_zip() {

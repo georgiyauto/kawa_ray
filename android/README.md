@@ -114,7 +114,7 @@ network and selected proxy. IP addresses are neither stored nor logged; the
 globe represents countries, not a user's precise location. Actual Xray TUN inbound counters distinguish received and sent traffic; these
 figures include IP headers and are distinct from server subscription limits.
 
-Kawa is derived from DUORAY under GPL-3.0-only with preserved original notices.
+Kawa is derived from KAWARAY under GPL-3.0-only with preserved original notices.
 See root README/LICENSE/THIRD-PARTY-NOTICES and `native/licenses/`.
 
 ## Platform differences

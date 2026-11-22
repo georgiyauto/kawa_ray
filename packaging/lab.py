@@ -87,11 +87,11 @@ elif c['action']=='start':
       '--cpus=2','--memory=3g','--memory-swap=4g','--pids-limit=512','--cap-drop=ALL','--security-opt=no-new-privileges',
       '-v',str(run)+':/source','-v',str(cache/'cargo')+':/cargo','-v',str(cache/'src/kawa-vpn-app/target')+':/target',
       '-w','/source/KawaVPN-0.4.26','-e','CARGO_HOME=/cargo','-e','CARGO_TARGET_DIR=/target','-e','CARGO_BUILD_JOBS=2']
-    build='cargo build --config profile.release.package.duoray-gui.opt-level=1 --locked --release --target '+target+' -p duoray-gui -p duoray-helper'
+    build='cargo build --config profile.release.package.kawaray-gui.opt-level=1 --locked --release --target '+target+' -p kawaray-gui -p kawaray-helper'
     if platform=='windows':
         build='mkdir -p /tmp/bin; ln -s /usr/bin/x86_64-w64-mingw32-windres /tmp/bin/windres; export PATH=/tmp/bin:$PATH; export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc; '+build
     else:
-        build+=' && cargo test --config profile.release.package.duoray-gui.opt-level=1 --release --locked --target '+target+' --workspace'
+        build+=' && cargo test --config profile.release.package.kawaray-gui.opt-level=1 --release --locked --target '+target+' --workspace'
     source_digest=hashlib.sha256((src/'dist/KawaVPN-0.4.26-source.zip').read_bytes()).hexdigest()
     package='export KAWA_SOURCE_ARCHIVE=dist/KawaVPN-0.4.26-source.zip; export KAWA_SOURCE_SHA256='+source_digest+'; export KAWA_SKIP_BUILD=1; export KAWA_'+('LINUX' if platform=='linux' else 'WINDOWS')+'_BIN=/target/'+target+'/release; '
     if platform=='linux':

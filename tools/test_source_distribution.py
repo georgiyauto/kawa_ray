@@ -10,20 +10,20 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-LEGAL = {"LICENSE-EXCEPTION.md", "THIRD-PARTY-NOTICES.md", "vendor/DUOTUN/LICENSE", "THIRD-PARTY-CRATES.txt"}
+LEGAL = {"LICENSE-EXCEPTION.md", "THIRD-PARTY-NOTICES.md", "vendor/KAWATUN/LICENSE", "THIRD-PARTY-CRATES.txt"}
 LEGAL |= {"android/app/src/main/assets/" + name for name in list(LEGAL) if "/" not in name}
 
 class SourceDistribution(unittest.TestCase):
     def test_helper_dependency_is_inside_checkout(self):
-        manifest = ROOT / "crates/duoray-helper/Cargo.toml"
-        dependency = tomllib.loads(manifest.read_text())["dependencies"]["duotun"]["path"]
+        manifest = ROOT / "crates/kawaray-helper/Cargo.toml"
+        dependency = tomllib.loads(manifest.read_text())["dependencies"]["kawatun"]["path"]
         resolved = (manifest.parent / dependency).resolve()
-        self.assertTrue(resolved.is_relative_to(ROOT), "clean checkout must include DUOTUN")
+        self.assertTrue(resolved.is_relative_to(ROOT), "clean checkout must include KAWATUN")
         self.assertTrue((resolved / "LICENSE").is_file())
 
     def test_original_notices_and_provenance_survive(self):
         self.assertEqual(hashlib.sha256((ROOT / "LICENSE-EXCEPTION.md").read_bytes()).hexdigest(), "7ed0cfe006d10ba02640e7b6b31037157eef8aa3213cc60f7012877b12dd5396")
-        self.assertEqual(hashlib.sha256((ROOT / "vendor/DUOTUN/LICENSE").read_bytes()).hexdigest(), "5c3cecfa8a9223595afc783bb16ad900656cfafa6a6311feabd0141b23b82b24")
+        self.assertEqual(hashlib.sha256((ROOT / "vendor/KAWATUN/LICENSE").read_bytes()).hexdigest(), "5c3cecfa8a9223595afc783bb16ad900656cfafa6a6311feabd0141b23b82b24")
         self.assertIn("https://github.com/m-a-prod/DUORAY", (ROOT / "README.md").read_text())
         self.assertIn("GPL-3.0-only", (ROOT / "README.md").read_text())
 
@@ -42,7 +42,7 @@ class SourceDistribution(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "source"; root.mkdir()
             files = {"Cargo.toml": "[workspace]", "README.md": "example", "LICENSE": "license",
-                     "crates/example/src/lib.rs": "pub fn source() {}", "vendor/DUOTUN/LICENSE": "MIT",
+                     "crates/example/src/lib.rs": "pub fn source() {}", "vendor/KAWATUN/LICENSE": "MIT",
                      ".env": "private", "packaging/windows/stage-x64/private.key": "private",
                      "target/release/app.exe": "binary", "account.json": "private", ".git/config": "private",
                      "android/app/libs/native.aar": "binary", "android/app/src/main/assets/xray/geoip.dat": "data",
@@ -57,7 +57,7 @@ class SourceDistribution(unittest.TestCase):
                 names = set(z.namelist())
                 self.assertIn("KawaVPN-0.4.26/Cargo.toml", names)
                 self.assertIn("KawaVPN-0.4.26/crates/example/src/lib.rs", names)
-                self.assertIn("KawaVPN-0.4.26/vendor/DUOTUN/LICENSE", names)
+                self.assertIn("KawaVPN-0.4.26/vendor/KAWATUN/LICENSE", names)
                 self.assertFalse(any(x in n for n in names for x in [".env", ".key", ".git/", "account.json", "target/", "stage-x64/", ".aar", "assets/xray/", "root-x64/", "/cache/"]))
                 manifest = json.loads(z.read("KawaVPN-0.4.26/SOURCE-MANIFEST.json"))
                 import hashlib

@@ -1,0 +1,3925 @@
+import "assets/kawa-dots.ttf";
+import { ListView, Palette, Spinner, ScrollView, CheckBox } from "std-widgets.slint";
+export { KawaTray } from "tray.slint";
+
+export struct SubRow {
+    // Storage index: manual groups are shown outside this list.
+    index: int,
+    name: string,
+    meta: string,
+    // Traffic used, 0..1; negative when the plan is unlimited.
+    usage: float,
+    error: string,
+}
+
+export struct ServerRow {
+    server-key: string,
+    shown: bool,
+    favorite: bool,
+    flag: string,
+    flag-image: image,
+    has-flag-image: bool,
+    name: string,
+    description: string,
+    protocol: string,
+    transport: string,
+    endpoint: string,
+    proxies: int,
+    ping-text: string,
+    // 0 none, 1 fast, 2 medium, 3 slow, 4 failed, 5 pending
+    ping-level: int,
+    // The user changed this server (kept across subscription updates).
+    edited: bool,
+    // Edited as JSON (else as a form of share-link fields).
+    is-json: bool,
+}
+
+// One field of the share-link form; `index` is what field-changed reports.
+export struct EditField {
+    index: int,
+    label: string,
+    value: string,
+    // Non-empty: a drop-down instead of a text field.
+    options: [string],
+    placeholder: string,
+    error: string,
+}
+
+export struct EditSection {
+    title: string,
+    fields: [EditField],
+}
+
+// A colored run in the JSON editor; `col` counts characters from the line start.
+export struct CodeSpan {
+    col: int,
+    text: string,
+    kind: int,
+}
+
+export struct CodeLine {
+    spans: [CodeSpan],
+}
+
+export global Theme {
+    // Text size multiplier from the settings (1.0 = 100 %).
+    in-out property <float> text-scale: 1.0;
+    out property <length> radius: 22px;
+    out property <color> edge: light ? #58657638 : #d5dce738;
+    in-out property <bool> motion: true;
+    in-out property <bool> compact: true;
+    in-out property <bool> narrow: true;
+    out property <color> base: light ? #f1f4f8 : #000000;
+    // Resolved scheme, also when following the system (color-scheme is then
+    // "unknown"): the Material light background is the tell.
+    out property <bool> light: Palette.background == #f8f3f9;
+    // Brand palette. Slint's own accent follows the desktop accent color (KDE,
+    // GNOME, macOS), which repaints the whole app; these stay Kawa VPN purple.
+    out property <color> accent: light ? #252c35 : #edf0f5;
+    out property <color> on-accent: light ? #ffffff : #191f28;
+    out property <color> tonal: light ? #e2e7ef : #292e35;
+    out property <color> on-tonal: light ? #252c35 : #e6e9ee;
+    out property <color> selection: accent.with-alpha(0.3);
+    out property <color> track: light ? #d4dbe4 : #30353e;
+    // Status tones: bright on dark, deeper on light so text keeps contrast.
+    out property <brush> danger: light ? #ce2c31 : #e5484d;
+    out property <brush> card: Palette.alternate-background;
+    out property <brush> muted: Palette.foreground.with-alpha(0.62);
+    out property <brush> ok: light ? #218358 : #30a46c;
+    out property <brush> warn: light ? #ab6400 : #f5a524;
+    // JSON editor syntax colors.
+    out property <color> code-key: light ? #0550ae : #8ab4f8;
+    out property <color> code-string: light ? #116329 : #a3d9a5;
+    out property <color> code-number: light ? #953800 : #f2b47a;
+    out property <color> code-accent: light ? #8250df : #d0a8ff;
+    out property <color> code-tag: light ? #0e7490 : #6fd8ea;
+    // Popup and dialog shadows: soft and lower on light backgrounds.
+    out property <color> shadow: light ? #0000002e : #00000080;
+    // Type scale.
+    out property <length> fs-caption: 11px * text-scale;
+    out property <length> fs-small: 12px * text-scale;
+    out property <length> fs-body: 13px * text-scale;
+    out property <length> fs-title: 14px * text-scale;
+    out property <length> fs-heading: 18px * text-scale;
+    out property <length> fs-display: 22px * text-scale;
+}
+
+component Badge inherits Rectangle {
+    in property <string> text;
+    border-radius: 13px;
+    background: Theme.accent;
+    width: 38px;
+    height: 26px;
+    Text {
+        text: root.text;
+        color: Theme.on-accent;
+        font-size: Theme.fs-small;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> accent;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: accent ? Theme.accent : Theme.edge;
+    background: accent ? Theme.accent.with-alpha(0.15) : transparent;
+    height: 28px;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: root.accent ? Palette.foreground : Palette.foreground.with-alpha(0.78);
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component PingChip inherits Rectangle {
+    in property <string> text;
+    in property <int> level;
+    property <brush> tone: level == 1 ? Theme.ok : level == 2 ? Theme.warn : level == 3 || level == 4 ? Theme.danger : Theme.muted;
+    border-radius: 14px;
+    height: 22px;
+    min-width: 54px;
+    horizontal-stretch: 0;
+    background: tone.with-alpha(0.14);
+    // The layout gives the chip its natural width (text or spinner + padding).
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+        // Still measuring: a small spinner instead of a glyph the font may lack.
+        if root.level == 5: VerticalLayout {
+            alignment: center;
+            Spinner {
+                indeterminate: true;
+                width: 14px;
+                height: 14px;
+            }
+        }
+        if root.level != 5: Text {
+            text: root.text;
+            font-size: Theme.fs-caption;
+            font-weight: 700;
+            color: root.tone;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SectionLabel inherits Text {
+    font-size: Theme.fs-caption;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: Theme.muted;
+    vertical-alignment: center;
+}
+
+component EmptyState inherits VerticalLayout {
+    in property <string> title;
+    in property <string> hint;
+    alignment: center;
+    spacing: 6px;
+    Text {
+        text: root.title;
+        font-size: Theme.fs-heading;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: root.hint;
+        color: Theme.muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+
+// Material Design icons (Apache 2.0), 24×24 viewBox, as SVG images: Slint
+// rasterizes SVGs exactly (resvg), while FemtoVG fills vector paths up to a
+// pixel too wide, which makes small icons look bold (slint-ui/slint#13173).
+global Icons {
+    out property <image> close: @image-url("icons/kawa-close.svg");
+    out property <image> minimize: @image-url("icons/kawa-minimize.svg");
+    out property <image> maximize: @image-url("icons/kawa-maximize.svg");
+    out property <image> chevron: @image-url("icons/kawa-chevron.svg");
+    out property <image> star-filled: @image-url("icons/kawa-star-filled.svg");
+    out property <image> star: @image-url("icons/kawa-star.svg");
+    out property <image> report: @image-url("icons/kawa-report.svg");
+    out property <image> settings: @image-url("icons/kawa-settings.svg");
+    out property <image> crown: @image-url("icons/kawa-crown.svg");
+    out property <image> servers: @image-url("icons/kawa-servers.svg");
+    out property <image> home: @image-url("icons/kawa-home.svg");
+    out property <image> refresh: @image-url("icons/refresh.svg");
+    out property <image> more: @image-url("icons/more.svg");
+    out property <image> info: @image-url("icons/info.svg");
+    out property <image> send: @image-url("icons/send.svg");
+    out property <image> expand-more: @image-url("icons/expand-more.svg");
+    out property <image> expand-less: @image-url("icons/expand-less.svg");
+    out property <image> sort: @image-url("icons/sort.svg");
+    out property <image> add: @image-url("icons/add.svg");
+    out property <image> arrow-up: @image-url("icons/arrow-up.svg");
+    out property <image> arrow-down: @image-url("icons/arrow-down.svg");
+    out property <image> delete: @image-url("icons/delete.svg");
+    out property <image> speed: @image-url("icons/speed.svg");
+    // The spinning refresh icon stays a path: rotating a colorized image
+    // renders incorrectly on some GPUs (seen on Windows).
+    out property <string> refresh-path: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
+}
+
+// ── Liquid glass ───────────────────────────────────────────────
+// After Glisse (github.com/0kzh/glisse), drawn with Slint brushes: the rim
+// carries a thin light lit from the top left (and its reflection bottom
+// right), the pointer leaves a soft glow where it presses, and a press grows
+// the glass by ~10px on its longer side and springs back past its rest size.
+global Glass {
+    // Press grow: the longer side grows by this much.
+    out property <length> grow: 10px;
+    // Spring-like overshoot used for press, release and sliding lenses.
+    out property <duration> spring: Theme.motion ? 420ms : 0ms;
+    out property <brush> rim-dark: @linear-gradient(135deg,#ffffff66 0%,#ffffff14 32%,#ffffff08 62%,#ffffff38 100%);
+    out property <brush> rim-light: @linear-gradient(135deg,#ffffffff 0%,#ffffff70 40%,#0000000f 70%,#00000026 100%);
+    out property <brush> rim-primary: @linear-gradient(135deg,#ffffffff 0%,#ffffffaa 35%,#c9d0da80 70%,#ffffffcc 100%);
+    out property <brush> fill-dark: @linear-gradient(180deg,#2b2c30e6 0%,#18191ce6 55%,#0e0f11e6 100%);
+}
+
+// The light on a glass rim; place it last inside the glass.
+component GlassRim inherits Rectangle {
+    in property <bool> primary;
+    in property <float> strength: 1;
+    background: transparent;
+    border-width: 1px;
+    border-color: root.primary ? Glass.rim-primary : Theme.light ? Glass.rim-light : Glass.rim-dark;
+    opacity: root.strength;
+}
+
+// Glow under the pointer while pressed (Glisse: radial 240px at the touch).
+component GlassGlow inherits Rectangle {
+    in property <bool> active;
+    in property <length> px;
+    in property <length> py;
+    in property <bool> dark-ink;
+    width: 240px; height: 240px;
+    x: root.px - 120px; y: root.py - 120px;
+    border-radius: 120px;
+    background: @radial-gradient(circle, (root.dark-ink ? #0000001c : #ffffff2a) 0%, (root.dark-ink ? #0000000a : #ffffff10) 45%, transparent 70%);
+    opacity: root.active ? 1 : 0;
+    animate opacity { duration: root.active ? 0ms : 220ms; easing: ease-in-out; }
+}
+
+// ── Controls ───────────────────────────────────────────────────
+// Own Button / Switch / ComboBox in the Material shapes the std widgets use,
+// painted with the brand palette instead of the desktop accent color.
+
+component Button inherits Rectangle {
+    in property <bool> show-shield: false;
+    in property <bool> show-report: false;
+    in property <length> font-size: Theme.fs-body;
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> primary;
+    callback clicked();
+    in property <color> ink: root.primary ? Theme.on-accent : Theme.on-tonal;
+    min-width: max(40px, label.preferred-width + 40px);
+    preferred-width: label.preferred-width + 48px;
+    min-height: 40px;
+    preferred-height: 40px;
+    vertical-stretch: 0;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    // Light theme mirrors the dark one: primary is the dark pill with white text,
+    // secondary a white pill with dark text (Theme.on-accent / on-tonal follow).
+    border-color: !root.enabled ? (Theme.light ? #0000000f : #ffffff12) : Theme.light ? (root.primary ? #11161d : #0000001c) : (root.primary ? #ffffffdd : #ffffff30);
+    background: !root.enabled ? Palette.foreground.with-alpha(0.12) : Theme.light ? (root.primary ? @linear-gradient(160deg,#3a424e,#1d232b 55%,#11161d) : @linear-gradient(180deg,#ffffffee,#eef2f7d8)) : (root.primary ? @linear-gradient(180deg,#fffffff7,#e4e8eeeb 50%,#c9d0dae6) : Glass.fill-dark);
+    drop-shadow-blur: root.primary || Theme.light ? 16px : 10px; drop-shadow-color: Theme.light ? #1a22302a : root.primary ? #e8effa26 : #00000080; drop-shadow-offset-y: 4px;
+    clip: true;
+    transform-scale: touch.pressed && root.enabled ? 1 + Glass.grow / max(self.width, self.height) : 1;
+    animate background { duration: Theme.motion ? 180ms : 0ms; easing: ease-out; }
+    animate transform-scale { duration: Glass.spring; easing: cubic-bezier(0.34,1.56,0.64,1); }
+    GlassGlow { active: touch.pressed && root.enabled; px: touch.pressed-x; py: touch.pressed-y; dark-ink: root.primary != Theme.light; }
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled { root.clicked(); }
+    }
+    // Hover / press state layer over the fill.
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: root.ink.with-alpha(!root.enabled ? 0 : touch.pressed ? 0.14 : touch.has-hover ? 0.08 : 0);
+        animate background { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+    }
+    if root.show-shield || root.show-report: Image {
+        source: root.show-report ? Icons.report : @image-url("icons/kawa-shield.svg");
+        colorize: root.ink; width: 26px; height: 26px;
+        x: (parent.width - label.preferred-width)/2 - 20px;
+        y: (parent.height - self.height)/2;
+    }
+    label := Text {
+        x: root.show-shield || root.show-report ? 40px : 0px;
+        width: parent.width - self.x;
+        font-size: root.font-size;
+        text: root.text;
+        color: root.enabled ? root.ink : Palette.foreground.with-alpha(0.38);
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: none;
+    }
+    GlassRim { border-radius: parent.border-radius; primary: root.primary && !Theme.light; strength: root.enabled ? 1 : 0.4; }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    forward-focus: keyboard;
+    keyboard := FocusScope {
+        x: 0; width: 0;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: transparent;
+        border-width: keyboard.has-focus ? 2px : 0px;
+        border-color: Theme.light ? #354d70 : #edf2fa;
+    }
+
+}
+
+component Switch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+    // Handle grows when on and while pressed, like Material 3.
+    property <length> knob: touch.pressed ? 28px : root.checked ? 24px : 16px;
+    width: 52px;
+    height: 32px;
+    border-radius: 16px;
+    border-width: 2px;
+    border-color: root.checked ? Theme.accent : Theme.edge;
+    background: root.checked ? Theme.accent : Theme.track;
+    opacity: root.enabled ? 1 : 0.38;
+    animate background, border-color { duration: Theme.motion ? 160ms : 0ms; easing: ease-out; }
+    accessible-role: switch;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        root.checked = !root.checked;
+        root.toggled();
+    }
+    Rectangle {
+        width: root.knob;
+        height: root.knob;
+        x: root.checked ? parent.width - root.knob - 4px : touch.pressed ? 2px : 8px;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        background: root.checked ? Theme.on-accent : Theme.edge;
+        animate x, width, height, background { duration: Theme.motion ? 240ms : 0ms; easing: ease-out; }
+        // Hover halo around the handle.
+        Rectangle {
+            width: 40px;
+            height: 40px;
+            border-radius: 20px;
+            background: (root.checked ? Theme.accent : Palette.foreground).with-alpha(touch.has-hover && root.enabled ? 0.10 : 0);
+            animate background { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+}
+
+// Two kinds of callers: bound by index (`current-index <=> …`) or by value
+// (`current-value <=> …`, set `by-value`). Index callers get the label from the
+// model, so a renamed item updates; value callers keep their string even when
+// the model is replaced. No wheel stepping: scrolling a page never changes a value.
+component ComboBox inherits Rectangle {
+    in property <[string]> model;
+    in property <bool> enabled: true;
+    in property <bool> by-value;
+    in-out property <int> current-index: 0;
+    in-out property <string> current-value: root.model[root.current-index];
+    callback selected(string);
+    property <length> item-height: 34px;
+    min-width: 160px;
+    min-height: 36px;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.55) : Theme.edge;
+    background: Palette.foreground.with-alpha(0.04);
+    opacity: root.enabled ? 1 : 0.38;
+    animate border-color { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+    accessible-role: combobox;
+    accessible-value: root.current-value;
+    accessible-enabled: root.enabled;
+    accessible-expandable: true;
+    accessible-action-expand => {
+        root.show-popup();
+    }
+
+    function sync-value() {
+        if root.by-value {
+            return;
+        }
+        root.current-value = root.current-index >= 0 && root.current-index < root.model.length
+            ? root.model[root.current-index] : "";
+    }
+    function select(index: int) {
+        root.current-index = index;
+        root.current-value = root.model[index];
+        root.selected(root.current-value);
+    }
+    function show-popup() {
+        if root.enabled && root.model.length > 0 {
+            popup.show();
+        }
+    }
+    changed model => {
+        if !root.by-value {
+            root.current-index = root.model.length == 0 ? 0 : root.current-index.clamp(0, root.model.length - 1);
+        }
+        root.sync-value();
+    }
+    changed current-index => {
+        root.sync-value();
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.current-value;
+            color: Palette.foreground;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        Image {
+            source: Icons.expand-more;
+            width: 20px;
+            height: 20px;
+            y: (parent.height - self.height) / 2;
+            colorize: Theme.muted;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.show-popup();
+        }
+    }
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        height: min(8, root.model.length) * root.item-height + 12px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.base;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.edge;
+            drop-shadow-blur: 20px;
+            drop-shadow-offset-y: 6px;
+            drop-shadow-color: Theme.shadow;
+            ListView {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+                for value[i] in root.model: Rectangle {
+                    height: root.item-height;
+                    border-radius: 13px;
+                    background: (root.by-value ? value == root.current-value : i == root.current-index) ? Theme.selection
+                        : item-touch.pressed ? Palette.foreground.with-alpha(0.14)
+                        : item-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+                    animate background { duration: Theme.motion ? 120ms : 0ms; easing: ease-out; }
+                    Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: parent.height;
+                        text: value;
+                        color: Palette.foreground;
+                        font-weight: (root.by-value ? value == root.current-value : i == root.current-index) ? 600 : 400;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    item-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.select(i);
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    in property <brush> tint: Palette.foreground;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 28px;
+    height: 40px;
+    border-radius: 16px;
+    background: touch.pressed && root.enabled ? Palette.foreground.with-alpha(0.16)
+        : touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.09) : transparent;
+    opacity: root.enabled ? 1 : 0.4;
+    // Glass press: grows, then springs back past rest.
+    transform-scale: touch.pressed && root.enabled ? 1.14 : 1;
+    animate background, opacity { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+    animate transform-scale { duration: Glass.spring; easing: cubic-bezier(0.34,1.56,0.64,1); }
+    GlassRim { border-radius: parent.border-radius; strength: touch.has-hover && root.enabled ? 1 : 0; animate strength { duration: Theme.motion ? 150ms : 0ms; } }
+    Image {
+        source: root.icon;
+        width: 18px;
+        height: 18px;
+        colorize: root.tint;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    forward-focus: keyboard;
+    keyboard := FocusScope {
+        x: 0; width: 0;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: transparent;
+        border-width: keyboard.has-focus ? 2px : 0px;
+        border-color: Theme.light ? #354d70 : #a9c9f2;
+    }
+
+}
+
+// Refresh button whose own icon spins while a refresh is running.
+component RefreshButton inherits Rectangle {
+    in property <bool> spinning;
+    callback clicked();
+    width: 28px;
+    height: 40px;
+    border-radius: 16px;
+    background: touch.pressed && !root.spinning ? Palette.foreground.with-alpha(0.16)
+        : touch.has-hover && !root.spinning ? Palette.foreground.with-alpha(0.10) : transparent;
+    transform-scale: touch.pressed && !root.spinning ? 1.14 : 1;
+    animate background { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+    animate transform-scale { duration: Glass.spring; easing: cubic-bezier(0.34,1.56,0.64,1); }
+    GlassRim { border-radius: parent.border-radius; strength: touch.has-hover && !root.spinning ? 1 : 0; }
+    if !root.spinning: Image {
+        source: Icons.refresh;
+        width: 18px;
+        height: 18px;
+        colorize: Palette.foreground;
+    }
+    // A vector path in a rotating box: rotating a colorized image renders
+    // incorrectly on some GPUs (seen on Windows).
+    if root.spinning: Rectangle {
+        width: 18px;
+        height: 18px;
+        // One turn per second, only while spinning (so no redraws when idle).
+        transform-rotation: mod(animation-tick() / 1ms, 1000) * 0.36deg;
+        Path {
+            commands: Icons.refresh-path;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            width: parent.width;
+            height: parent.height;
+            fill: Palette.foreground;
+            fill-rule: evenodd;
+        }
+    }
+    touch := TouchArea {
+        enabled: !root.spinning;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 34px;
+    border-radius: 13px;
+    opacity: root.enabled ? 1 : 0.4;
+    background: !root.enabled ? transparent
+        : touch.pressed ? Palette.foreground.with-alpha(0.14)
+        : touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+    animate background { duration: Theme.motion ? 120ms : 0ms; easing: ease-out; }
+    Text {
+        x: 10px;
+        text: root.text;
+        font-size: Theme.fs-body;
+        color: root.danger ? Theme.danger : Palette.foreground;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// ── Settings building blocks ───────────────────────────────────
+
+// Single-line input with the same 36 px height as the combo boxes.
+component TextField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    in property <bool> search-icon: false;
+    callback edited();
+    callback accepted();
+    callback key-pressed(KeyEvent) -> EventResult;
+    forward-focus: input;
+    height: 36px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.edge;
+    // Same quiet fill as ComboBox, so text and choice fields read as one set.
+    background: Palette.foreground.with-alpha(0.04);
+    animate border-color { duration: Theme.motion ? 150ms : 0ms; easing: ease-out; }
+    if root.search-icon: Image { source: @image-url("icons/kawa-search.svg"); x: 14px; y: (parent.height - self.height)/2; width: 22px; height: 22px; colorize: Theme.muted; }
+    input := TextInput {
+        x: root.search-icon ? 46px : 12px;
+        width: parent.width - (root.search-icon ? 58px : 24px);
+        height: parent.height;
+        vertical-alignment: center;
+        font-size: Theme.fs-body;
+        color: Palette.foreground;
+        single-line: true;
+        edited => {
+            root.edited();
+        }
+        accepted => {
+            root.accepted();
+        }
+        key-pressed(e) => {
+            root.key-pressed(e)
+        }
+    }
+    if root.text == "" && !input.has-focus: Text {
+        x: root.search-icon ? 46px : 12px;
+        height: parent.height;
+        vertical-alignment: center;
+        text: root.placeholder;
+        font-size: Theme.fs-body;
+        color: Theme.muted;
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.edge;
+}
+
+// Title + explanation on the left, a switch on the right.
+component ToggleRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> description;
+    in-out property <bool> checked;
+    callback toggled();
+    height: self.preferred-height;
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 4px;
+        Text {
+            text: root.title;
+            font-size: Theme.fs-title;
+            font-weight: 700;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.description;
+            font-size: Theme.fs-small;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            checked <=> root.checked;
+            toggled => {
+                root.toggled();
+            }
+        }
+    }
+}
+
+// Fixed-width label column so every control lines up.
+component FieldLabel inherits Text {
+    width: 150px;
+    font-size: Theme.fs-body;
+    color: Theme.muted;
+    vertical-alignment: center;
+}
+
+component SettingsCard inherits Rectangle {
+    background: Theme.light ? #f4f4f4 : @linear-gradient(125deg,#ffffff0e,#ffffff04);
+    border-width: 1px; border-color: Theme.light ? #00000015 : #ffffff18;
+    border-radius: 18px;
+    height: card-layout.preferred-height;
+    card-layout := VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+        alignment: start;
+        @children
+    }
+}
+
+component SettingsPage inherits Rectangle {
+    background: transparent;
+    in-out property <int> category: 0;
+    in property <bool> narrow: false;
+
+    in-out property <bool> happ-enabled;
+    in-out property <string> app-version;
+    in-out property <string> os: "macOS";
+    in-out property <string> os-version;
+    in-out property <string> model;
+    in-out property <string> locale;
+    in-out property <string> user-id;
+    in-out property <string> hwid;
+    in property <string> kawa-ua;
+    in property <string> kawa-hwid;
+    in property <string> helper-status;
+    in property <bool> helper-busy;
+    // 0 HTTP GET, 1 HTTP HEAD, 2 TCP, 3 ICMP
+    in-out property <int> ping-mode-index;
+    in-out property <string> ping-threads: "1";
+    in-out property <string> ping-url;
+    in-out property <bool> ping-on-startup: false;
+    in-out property <bool> autostart: false;
+    in-out property <bool> autostart-connect: true;
+    in property <[string]> autostart-server-choices: ["Последний выбранный сервер"];
+    in-out property <int> autostart-server-index: 0;
+    in property <[string]> autostart-delay-choices: ["Сразу — в первую очередь"];
+    in-out property <int> autostart-delay-index: 0;
+    in-out property <bool> send-device-info: true;
+    in-out property <string> text-scale-choice: "100%";
+    in-out property <string> font-choice: "Системный";
+    in-out property <string> theme-choice: "Тёмная";
+    in property <[string]> font-choices: ["Системный"];
+    in-out property <bool> hysteria-restart;
+    in-out property <string> hysteria-minutes: "5";
+    in-out property <bool> telemetry-enabled;
+    in-out property <bool> auto-update: true;
+    in property <string> kawa-version;
+    in property <string> update-info;
+
+    // Fired on every edit; the app saves (debounced), no Save button.
+    // All subscriptions, for the list in the «Подписки» section.
+    in property <[SubRow]> subs;
+    in property <int> current-sub: -1;
+    // Index of the subscription whose delete button awaits confirmation.
+    in-out property <int> confirm-remove: -1;
+    callback select-sub(int);
+    callback remove-sub(int);
+    callback add-sub();
+    callback changed();
+    callback ping-startup-changed(bool);
+    callback autostart-changed(bool);
+    callback back();
+    callback randomize-ids();
+    callback randomize-device();
+    callback reset();
+    callback reinstall-helper();
+    callback uninstall-helper();
+    callback report-problem();
+    callback check-update();
+    callback open-link(string);
+    callback local-document(string);
+
+    HorizontalLayout {
+    spacing: 16px; padding: 12px;
+    if !root.narrow: VerticalLayout {
+        width: 170px; spacing: 8px; alignment: start;
+        Text { text: "Настройки"; font-size: 22px; font-weight: 700; height: 48px; }
+        for label[i] in ["Подключение","Подписки","Оформление","Диагностика","О программе"]: Button {
+            text: label; primary: root.category == i; height: 42px; min-width: 0px;
+            clicked => { root.category = i; }
+        }
+        Text { text: "Изменения сохраняются автоматически"; wrap: word-wrap; font-size: 11px; color: Theme.muted; }
+    }
+    ScrollView {
+        content-width: max(self.visible-width, settings-content.min-width);
+        // Scroll the full natural content height, not the layout's minimum height.
+        content-height: max(self.visible-height, settings-content.preferred-height);
+        settings-content := VerticalLayout {
+            padding: root.narrow ? 8px : 24px;
+            spacing: 12px;
+            // Pack sections at the top; spare height must not stretch the cards.
+            alignment: start;
+
+            Text {
+                text: ["Подключение","Подписки","Оформление","Диагностика","О программе"][root.category];
+                font-size: 28px;
+                font-weight: 800;
+            }
+
+            Text { text: "Управляйте Kawa VPN так, как удобно вам"; color: Theme.muted; font-size: 13px; }
+            if root.narrow: ComboBox { model: ["Подключение","Подписки","Оформление","Диагностика","О программе"]; current-index <=> root.category; height: 40px; }
+            // ── Subscription requests ──
+            if root.category == 1: SectionLabel { text: "МОИ ПОДПИСКИ · " + root.subs.length; }
+            if root.category == 1: SettingsCard {
+                if root.subs.length == 0: Text { text: "Подписок пока нет. Добавь ссылку или войди через бота."; color: Theme.muted; wrap: word-wrap; }
+                for sub[i] in root.subs: VerticalLayout {
+                    spacing: 10px;
+                    if i > 0: Divider { }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 3px;
+                            alignment: center;
+                            Text { text: sub.name + (sub.index == root.current-sub ? "  · выбрана" : ""); font-size: Theme.fs-title; font-weight: 700; wrap: word-wrap; }
+                            if sub.meta != "": Text { text: sub.meta; font-size: Theme.fs-small; color: Theme.muted; wrap: word-wrap; }
+                            if sub.error != "": Text { text: sub.error; font-size: Theme.fs-small; color: Theme.danger; wrap: word-wrap; }
+                        }
+                        if sub.index != root.current-sub: Button {
+                            horizontal-stretch: 0; min-width: 96px; preferred-height: 34px; min-height: 34px;
+                            text: "Выбрать";
+                            clicked => { root.confirm-remove = -1; root.select-sub(sub.index); }
+                        }
+                        Button {
+                            horizontal-stretch: 0; min-width: root.confirm-remove == sub.index ? 150px : 96px; preferred-height: 34px; min-height: 34px;
+                            text: root.confirm-remove == sub.index ? "Точно удалить?" : "Удалить";
+                            ink: Theme.light ? #ce2c31 : #e5484d;
+                            clicked => {
+                                if root.confirm-remove == sub.index { root.confirm-remove = -1; root.remove-sub(sub.index); }
+                                else { root.confirm-remove = sub.index; }
+                            }
+                        }
+                    }
+                }
+                Button { horizontal-stretch: 0; preferred-height: 36px; min-height: 36px; text: "+ Добавить подписку"; clicked => { root.confirm-remove = -1; root.add-sub(); } }
+            }
+            if root.category == 1: SectionLabel { text: "ЗАПРОСЫ ПОДПИСОК"; }
+            if root.category == 1: SettingsCard {
+                ToggleRow {
+                    title: "Отправлять HWID и данные устройства";
+                    description: "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.";
+                    checked <=> root.send-device-info;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Happ Spoof";
+                    description: "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию Kawa VPN представляется собой.";
+                    checked <=> root.happ-enabled;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+
+                if root.happ-enabled: VerticalLayout {
+                    height: self.preferred-height;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "Версия Happ";
+                        }
+                        TextField {
+                            text <=> root.app-version;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "ОС";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["macOS", "Windows", "iOS", "Android"];
+                            by-value: true;
+                            current-value <=> root.os;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "Версия ОС";
+                        }
+                        TextField {
+                            text <=> root.os-version;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "Модель";
+                        }
+                        TextField {
+                            text <=> root.model;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "Язык";
+                        }
+                        TextField {
+                            text <=> root.locale;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "User ID";
+                        }
+                        TextField {
+                            text <=> root.user-id;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                            text: "HWID";
+                        }
+                        TextField {
+                            text <=> root.hwid;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        padding-left: 162px;
+                        Button {
+                            text: "Новые ID";
+                            clicked => {
+                                root.randomize-ids();
+                            }
+                        }
+                        Button {
+                            text: "Случайное устройство";
+                            clicked => {
+                                root.randomize-device();
+                            }
+                        }
+                        Button {
+                            text: "Сбросить";
+                            clicked => {
+                                root.reset();
+                            }
+                        }
+                    }
+                }
+
+                Divider { }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "Будет отправлено";
+                        font-size: Theme.fs-small;
+                        font-weight: 700;
+                        color: Theme.muted;
+                    }
+                    Text {
+                        text: "User-Agent: " + (root.happ-enabled ? "Happ/" + root.app-version + "/" + root.os + "/" + root.user-id : root.kawa-ua);
+                        font-size: Theme.fs-small;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.send-device-info
+                            ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.kawa-hwid)
+                            : "HWID и данные устройства не отправляются";
+                        font-size: Theme.fs-small;
+                        color: root.send-device-info ? Palette.foreground : Theme.muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // ── Connection ──
+            if root.category == 0: SectionLabel { text: "ПОДКЛЮЧЕНИЕ"; }
+            if root.category == 0: SettingsCard {
+                ToggleRow {
+                    title: "Перезапускать Hysteria2";
+                    description: "Перезапускать ядро по таймеру для профилей Hysteria2. Текущие соединения при перезапуске прерываются.";
+                    checked <=> root.hysteria-restart;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                if root.hysteria-restart: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Каждые, минут";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["1", "2", "3", "5", "10", "15", "30", "60"];
+                        by-value: true;
+                        current-value <=> root.hysteria-minutes;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                Divider { }
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Помощник TUN";
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.helper-status;
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button {
+                                text: "Переустановить";
+                                enabled: !root.helper-busy;
+                                clicked => {
+                                    root.reinstall-helper();
+                                }
+                            }
+                            Button {
+                                text: "Удалить";
+                                enabled: !root.helper-busy;
+                                clicked => {
+                                    root.uninstall-helper();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Autostart ──
+            if root.category == 0: SectionLabel { text: "АВТОЗАПУСК"; }
+            if root.category == 0: SettingsCard {
+                ToggleRow {
+                    title: "Запускать вместе с Windows";
+                    description: "Kawa VPN откроется свёрнутым при входе в систему.";
+                    checked <=> root.autostart;
+                    toggled => { root.autostart-changed(root.autostart); }
+                }
+                if root.autostart: Divider { }
+                if root.autostart: ToggleRow {
+                    title: "Подключаться при автозапуске";
+                    description: "Сразу включать VPN на выбранном ниже сервере.";
+                    checked <=> root.autostart-connect;
+                    toggled => { root.changed(); }
+                }
+                if root.autostart && root.autostart-connect: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel { width: root.narrow ? 100px : 150px; text: "Сервер"; }
+                    ComboBox {
+                        height: 36px;
+                        model: root.autostart-server-choices;
+                        current-index <=> root.autostart-server-index;
+                        selected => { root.changed(); }
+                    }
+                }
+                if root.autostart: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel { width: root.narrow ? 100px : 150px; text: "Приоритет"; }
+                    ComboBox {
+                        height: 36px;
+                        model: root.autostart-delay-choices;
+                        current-index <=> root.autostart-delay-index;
+                        selected => { root.changed(); }
+                    }
+                }
+            }
+
+            // ── Ping ──
+            if root.category == 0: SectionLabel { text: "ПИНГ"; }
+            if root.category == 0: SettingsCard {
+                ToggleRow {
+                    title: "Проверять пинг при запуске";
+                    description: "Один раз после открытия приложения. Выключено — проверка только по кнопке. Изменение применяется при следующем запуске.";
+                    checked <=> root.ping-on-startup;
+                    toggled => { root.ping-startup-changed(root.ping-on-startup); }
+                }
+                Divider { }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Способ";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["HTTP GET — доступность VPN", "HTTP HEAD — доступность VPN"];
+                        current-index <=> root.ping-mode-index;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Потоков";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["1", "2", "4", "8", "16"];
+                        by-value: true;
+                        current-value <=> root.ping-threads;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                if root.ping-mode-index <= 1: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Адрес проверки";
+                    }
+                    TextField {
+                        text <=> root.ping-url;
+                        placeholder: "http://cp.cloudflare.com/generate_204";
+                        edited => {
+                            root.changed();
+                        }
+                    }
+                }
+                Text {
+                    text: "HTTP проверяет доступность сайта через VPN. Задержка измеряется отдельным TCP-запросом; у UDP-профилей она может быть недоступна.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Один поток создаёт меньше одновременных соединений. Несколько потоков ускоряют проверку.";
+                    font-size: Theme.fs-small;
+                    color: Theme.warn;
+                    wrap: word-wrap;
+                }
+            }
+
+            // ── Interface ──
+            if root.category == 2: SectionLabel { text: "ИНТЕРФЕЙС"; }
+            if root.category == 2: SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Тема";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["Тёмная", "Светлая", "Как в системе"];
+                        by-value: true;
+                        current-value <=> root.theme-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Размер текста";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["90%", "100%", "110%", "120%", "130%"];
+                        by-value: true;
+                        current-value <=> root.text-scale-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        width: root.narrow ? 100px : 150px;
+                        text: "Шрифт";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: root.font-choices;
+                        by-value: true;
+                        current-value <=> root.font-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+            }
+
+            // ── Reports and updates ──
+            if root.category == 3: SectionLabel { text: "ОТЧЁТЫ И ОБНОВЛЕНИЯ"; }
+            if root.category == 3: SettingsCard {
+                ToggleRow {
+                    title: "Отправлять отчёты об ошибках";
+                    description: "Версия, ОС, модель, CPU/RAM, очищенные журналы и публичный IP провайдера, определяемый отдельным запросом к Kawa вне VPN. Получатель — поддержка Kawa VPN. Активная база: 90 дней.";
+                    checked <=> root.telemetry-enabled;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Проверять обновления";
+                    description: "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.";
+                    checked <=> root.auto-update;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.update-info != "" ? root.update-info : "Установлена версия " + root.kawa-version + ".";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Проверить";
+                            clicked => {
+                                root.check-update();
+                            }
+                        }
+                    }
+                }
+                Divider { }
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Сообщить о проблеме";
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Написать";
+                            clicked => {
+                                root.report-problem();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── About (GPL "Appropriate Legal Notices") ──
+            if root.category == 4: SectionLabel { text: "О ПРОГРАММЕ"; }
+            if root.category == 4: SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Kawa VPN " + root.kawa-version;
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "Kawa VPN. Твои серверы, подписка и поддержка — в одном месте.";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "@your_bot";
+                            clicked => {
+                                root.open-link("https://t.me/your_bot");
+                            }
+                        }
+                    }
+                }
+                Divider { }
+                Text {
+                    text: "Основано на KAWARAY · GPL-3.0-only. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Исходный код открыт на GitHub, он и лицензии также входят в комплект поставки.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: "Исходный код на GitHub";
+                        primary: true;
+                        clicked => {
+                            root.open-link("https://github.com/georgiyauto/kawa_ray");
+                        }
+                    }
+                    Button {
+                        text: "Исходный код";
+                        clicked => {
+                            root.local-document("source");
+                        }
+                    }
+                    Button {
+                        text: "Лицензия";
+                        clicked => {
+                            root.local-document("license");
+                        }
+                    }
+                    Button {
+                        text: "Сторонние компоненты";
+                        clicked => {
+                            root.local-document("notices");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+// ── Routing ────────────────────────────────────────────────────
+
+export struct GameRow {
+    id: string,
+    title: string,
+    subtitle: string,
+    on: bool,
+}
+
+// One advanced rule; lists are free text, parsed by the app.
+export struct RuleRow {
+    enabled: bool,
+    // 0 via VPN, 1 direct, 2 block
+    action: int,
+    domains: string,
+    ips: string,
+    ports: string,
+    // 0 TCP+UDP, 1 TCP, 2 UDP
+    network: int,
+}
+
+component RuleCard inherits Rectangle {
+    in property <RuleRow> rule;
+    in property <int> index;
+    in property <bool> first;
+    in property <bool> last;
+    callback edited(RuleRow);
+    callback move(int);
+    callback remove();
+    background: Theme.base;
+    border-radius: 10px;
+    height: rule-layout.preferred-height;
+    rule-layout := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: root.rule.enabled;
+                    toggled => {
+                        root.edited({ enabled: self.checked, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: "Правило " + (root.index + 1);
+                font-size: Theme.fs-title;
+                font-weight: 700;
+                vertical-alignment: center;
+                color: root.rule.enabled ? Palette.foreground : Theme.muted;
+            }
+            IconButton {
+                icon: Icons.arrow-up;
+                enabled: !root.first;
+                clicked => {
+                    root.move(-1);
+                }
+            }
+            IconButton {
+                icon: Icons.arrow-down;
+                enabled: !root.last;
+                clicked => {
+                    root.move(1);
+                }
+            }
+            IconButton {
+                icon: Icons.delete;
+                tint: Theme.danger;
+                clicked => {
+                    root.remove();
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            ComboBox {
+                height: 36px;
+                horizontal-stretch: 1;
+                model: ["Через VPN", "Напрямую", "Блокировать"];
+                current-index: root.rule.action;
+                selected => {
+                    root.edited({ enabled: root.rule.enabled, action: self.current-index, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+            ComboBox {
+                height: 36px;
+                horizontal-stretch: 1;
+                model: ["TCP и UDP", "Только TCP", "Только UDP"];
+                current-index: root.rule.network;
+                selected => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: self.current-index });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "Домены";
+                width: 70px;
+            }
+            domains := TextField {
+                text: root.rule.domains;
+                placeholder: "youtube.com, geosite:google, keyword:ozon";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: domains.text, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "IP";
+                width: 70px;
+            }
+            ips := TextField {
+                text: root.rule.ips;
+                placeholder: "1.2.3.4, 10.0.0.0/8, geoip:ru";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: ips.text, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "Порты";
+                width: 70px;
+            }
+            ports := TextField {
+                text: root.rule.ports;
+                placeholder: "443, 27000-27100";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: ports.text, network: root.rule.network });
+                }
+            }
+        }
+    }
+}
+
+component RoutingPage inherits Rectangle {
+    background: Theme.base;
+
+    in-out property <bool> advanced;
+    in-out property <bool> lan;
+    in-out property <bool> ru;
+    in-out property <bool> whitelist;
+    in property <[GameRow]> games;
+    in property <[string]> profiles;
+    in-out property <int> profile-index;
+    in-out property <string> profile-name;
+    in property <[RuleRow]> rules;
+    in-out property <int> default-action;
+    in-out property <bool> keep-panel: true;
+    in-out property <string> domain-strategy: "Как в подписке";
+    in property <string> geo-status;
+    in property <bool> geo-busy;
+    in property <string> warnings;
+    // 0 off, 1 listed apps bypass the VPN, 2 only listed apps use it
+    in-out property <int> app-mode;
+    in property <[string]> apps;
+    in property <[string]> running;
+    in-out property <bool> picking;
+
+    // Any switch or profile field changed; the app reads the properties.
+    callback changed();
+    callback game-toggled(int, bool);
+    callback rule-edited(int, RuleRow);
+    callback rule-moved(int, int);
+    callback rule-removed(int);
+    callback add-rule();
+    callback add-profile();
+    callback remove-profile();
+    callback select-profile(int);
+    callback update-geo();
+    callback app-added(string);
+    callback app-removed(int);
+    callback pick-running();
+
+    ScrollView {
+        content-width: max(self.visible-width, routing-content.min-width);
+        content-height: max(self.visible-height, routing-content.preferred-height);
+        routing-content := VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            alignment: start;
+
+            Text {
+                text: "Маршрутизация";
+                font-size: Theme.fs-display;
+                font-weight: 800;
+            }
+            Text {
+                text: "Что пускать мимо VPN. «Напрямую» — значит с вашим обычным интернетом и IP. Всё остальное идёт так, как настроено в подписке.";
+                font-size: Theme.fs-small;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+
+            SettingsCard {
+                ToggleRow {
+                    title: "Продвинутый режим";
+                    description: "Свои правила по доменам, IP и портам, несколько профилей. Для тех, кто знает, что такое geosite и CIDR.";
+                    checked <=> root.advanced;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+            }
+
+            if !root.advanced: VerticalLayout {
+                height: self.preferred-height;
+                spacing: 12px;
+                SectionLabel {
+                    text: "НАПРЯМУЮ";
+                }
+                SettingsCard {
+                    ToggleRow {
+                        title: "Российские сайты";
+                        description: "Все российские IP-адреса и сайты .ru, .рф, .su: Госуслуги, банки, маркетплейсы, видео. Они видят вас как обычно и работают быстрее.";
+                        checked <=> root.ru;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Белый список";
+                        description: "Только сайты из белых списков мобильных операторов — те, что открываются даже при ограничениях мобильного интернета. Остальные российские сайты пойдут через VPN.";
+                        checked <=> root.whitelist;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Локальная сеть";
+                        description: "Роутер, принтеры, NAS и другие устройства дома или в офисе.";
+                        checked <=> root.lan;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                }
+
+                SectionLabel {
+                    text: "ИГРЫ НАПРЯМУЮ";
+                }
+                SettingsCard {
+                    for g[i] in root.games: VerticalLayout {
+                        height: self.preferred-height;
+                        spacing: 14px;
+                        if i > 0: Divider { }
+                        ToggleRow {
+                            title: g.title;
+                            description: g.subtitle;
+                            checked: g.on;
+                            toggled => {
+                                root.game-toggled(i, self.checked);
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "Игры напрямую — минимальный пинг до игровых серверов. Если игра или магазин заблокированы у провайдера, оставьте их через VPN.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.advanced: VerticalLayout {
+                height: self.preferred-height;
+                spacing: 12px;
+                SectionLabel {
+                    text: "ПРОФИЛЬ";
+                }
+                SettingsCard {
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ComboBox {
+                            height: 36px;
+                            horizontal-stretch: 1;
+                            model: root.profiles;
+                            current-index <=> root.profile-index;
+                            selected => {
+                                root.select-profile(self.current-index);
+                            }
+                        }
+                        Button {
+                            text: "Новый";
+                            clicked => {
+                                root.add-profile();
+                            }
+                        }
+                        Button {
+                            text: "Удалить";
+                            enabled: root.profiles.length > 1;
+                            clicked => {
+                                root.remove-profile();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Название";
+                        }
+                        TextField {
+                            text <=> root.profile-name;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Остальной трафик";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Через VPN", "Напрямую", "Блокировать"];
+                            current-index <=> root.default-action;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Domain strategy";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Как в подписке", "AsIs", "IPIfNonMatch", "IPOnDemand"];
+                            by-value: true;
+                            current-value <=> root.domain-strategy;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Правила подписки";
+                        description: "После ваших правил применять правила из подписки. Если выключить, работают только ваши.";
+                        checked <=> root.keep-panel;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    SectionLabel {
+                        text: "ПРАВИЛА";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Добавить правило";
+                        clicked => {
+                            root.add-rule();
+                        }
+                    }
+                }
+                if root.rules.length == 0: Text {
+                    text: "Правил нет. Пример: «Напрямую» + домены «geosite:category-ru» или IP «geoip:ru».";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                for r[i] in root.rules: RuleCard {
+                    rule: r;
+                    index: i;
+                    first: i == 0;
+                    last: i == root.rules.length - 1;
+                    edited(row) => {
+                        root.rule-edited(i, row);
+                    }
+                    move(d) => {
+                        root.rule-moved(i, d);
+                    }
+                    remove => {
+                        root.rule-removed(i);
+                    }
+                }
+                Text {
+                    text: "Правила проверяются сверху вниз, срабатывает первое подходящее. Домены: example.com (с поддоменами), full:, keyword:, regexp:, geosite:… IP: адреса, подсети, geoip:ru, geoip:ru-whitelist, geoip:private. Через запятую.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            SectionLabel {
+                text: "ПРИЛОЖЕНИЯ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Режим";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["Выключено", "Эти программы — мимо VPN", "Только эти программы — через VPN"];
+                        current-index <=> root.app-mode;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                Text {
+                    text: root.app-mode == 0 ? "Все программы идут по правилам выше."
+                        : root.app-mode == 1 ? "Выбранные программы работают с вашим обычным IP: например, Steam и игры, банковские приложения, торренты."
+                        : "Через VPN идут только выбранные программы, всё остальное — напрямую.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.app-mode != 0: VerticalLayout {
+                    height: self.preferred-height;
+                    spacing: 8px;
+                    for a[i] in root.apps: HorizontalLayout {
+                        height: self.preferred-height;
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: a;
+                            font-size: Theme.fs-body;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        IconButton {
+                            icon: Icons.delete;
+                            tint: Theme.danger;
+                            clicked => {
+                                root.app-removed(i);
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        new-app := TextField {
+                            placeholder: "steam.exe, Telegram или путь";
+                        }
+                        Button {
+                            text: "Добавить";
+                            enabled: new-app.text != "";
+                            clicked => {
+                                root.app-added(new-app.text);
+                                new-app.text = "";
+                            }
+                        }
+                        Button {
+                            text: root.picking ? "Скрыть" : "Из запущенных";
+                            clicked => {
+                                if (!root.picking) {
+                                    root.pick-running();
+                                }
+                                root.picking = !root.picking;
+                            }
+                        }
+                    }
+                    if root.picking: Rectangle {
+                        height: 240px;
+                        border-radius: 14px;
+                        background: Theme.base;
+                        ListView {
+                            content-width: self.visible-width;
+                            for name in root.running: Rectangle {
+                                height: 32px;
+                                background: pick-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+                                animate background { duration: Theme.motion ? 120ms : 0ms; easing: ease-out; }
+                                Text {
+                                    x: 12px;
+                                    width: parent.width - 24px;
+                                    height: parent.height;
+                                    text: name;
+                                    font-size: Theme.fs-body;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                pick-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.app-added(name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.warnings != "": Text {
+                text: root.warnings;
+                font-size: Theme.fs-small;
+                color: Theme.warn;
+                wrap: word-wrap;
+            }
+
+            SectionLabel {
+                text: "БАЗЫ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Российские IP, белые списки, серверы игр";
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: root.geo-status;
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: root.geo-busy ? "Обновление…" : "Обновить";
+                            enabled: !root.geo-busy;
+                            clicked => {
+                                root.update-geo();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Server editor ──────────────────────────────────────────────
+// JSON servers: the config as text, checked on every keystroke.
+// Share-link servers: a form; "Как JSON" turns the server into a JSON one.
+
+component ServerEditor inherits Rectangle {
+    background: Theme.base;
+
+    // 0 JSON text, 1 share-link form
+    in property <int> mode;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> note;
+    in-out property <string> json;
+    // "1\n2\n…" for the line-number gutter.
+    in property <string> lines;
+    in property <string> mono;
+    in property <string> status;
+    in property <bool> valid: true;
+    // Byte offset of the JSON error, -1 if there is none to point at.
+    in property <int> error-offset: -1;
+    // 1-based line of the JSON error, 0 for none.
+    in property <int> error-line;
+    // Highlighted lines (see server_edit::highlight); only changed lines are
+    // replaced in this model, so a keystroke re-lays out a single line.
+    in property <[CodeLine]> code;
+    // Too big to highlight: show the text itself in one color.
+    in property <bool> plain;
+    in property <[EditSection]> sections;
+    in property <bool> edited;
+    in property <bool> live;
+
+    callback json-changed(string);
+    callback format();
+    callback save();
+    callback cancel();
+    callback field-changed(int, string);
+
+    property <bool> highlighted: !root.plain;
+    property <length> caret-x;
+    property <length> caret-y;
+    property <bool> caret-on: true;
+    // Height of one text line in the editor font, measured over 64 lines:
+    // preferred heights are whole pixels, a 2-line probe would drift.
+    property <length> line-h: (probe2.preferred-height - probe1.preferred-height) / 63;
+    probe1 := Text {
+        visible: false;
+        text: "0";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    probe2 := Text {
+        visible: false;
+        text: "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    // Advance of one character in the editor font.
+    property <length> char-w: probe10.preferred-width / 10;
+    probe10 := Text {
+        visible: false;
+        text: "0000000000";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    callback as-json();
+    callback reset();
+
+    // Colors of the syntax layers, by layer index.
+    pure function layer-color(i: int) -> color {
+        if i == 1 {
+            return Theme.code-key;
+        }
+        if i == 2 {
+            return Theme.code-string;
+        }
+        if i == 3 {
+            return Theme.code-number;
+        }
+        if i == 4 {
+            return Theme.code-accent;
+        }
+        if i == 5 {
+            return Theme.code-tag;
+        }
+        if i == 6 {
+            return Theme.danger;
+        }
+        return Palette.foreground.with-alpha(0.55);
+    }
+
+    function shortcut(e: KeyEvent) -> EventResult {
+        if (e.modifiers.control || e.modifiers.meta) && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы") {
+            root.save();
+            return accept;
+        }
+        if e.text == Key.Escape {
+            root.cancel();
+            return accept;
+        }
+        return reject;
+    }
+
+    FocusScope {
+        key-pressed(e) => {
+            return root.shortcut(e);
+        }
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text {
+                        text: root.title;
+                        font-size: Theme.fs-display;
+                        font-weight: 800;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.subtitle;
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+                if root.mode == 0: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Форматировать";
+                        clicked => {
+                            root.format();
+                        }
+                    }
+                }
+                if root.mode == 1: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Как JSON";
+                        clicked => {
+                            root.as-json();
+                        }
+                    }
+                }
+            }
+
+            if root.note != "": Text {
+                text: root.note;
+                font-size: Theme.fs-small;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+
+            if root.mode == 0: VerticalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: Theme.radius;
+                    background: Theme.card;
+                    border-width: 1px;
+                    border-color: !root.valid ? Theme.danger.with-alpha(0.7)
+                        : input.has-focus ? Theme.accent.with-alpha(0.6) : Theme.edge.with-alpha(0.4);
+                    animate border-color { duration: Theme.motion ? 180ms : 0ms; easing: ease-out; }
+                    clip: true;
+                    // Line numbers follow the text's vertical scroll.
+                    Rectangle {
+                        x: 0;
+                        width: 52px;
+                        background: Palette.foreground.with-alpha(0.035);
+                        clip: true;
+                        Text {
+                            x: 0;
+                            y: 12px + sv.content-y;
+                            width: parent.width - 12px;
+                            text: root.lines;
+                            font-family: root.mono;
+                            font-size: Theme.fs-body;
+                            color: Theme.muted.with-alpha(0.55);
+                            horizontal-alignment: right;
+                            accessible-role: none;
+                        }
+                    }
+                    sv := ScrollView {
+                        x: 52px;
+                        width: parent.width - 52px;
+                        content-width: max(self.visible-width, input.preferred-width + 24px);
+                        content-height: max(self.visible-height, input.preferred-height + 24px);
+                        // The line with the JSON error, behind the text.
+                        if root.error-line > 0: Rectangle {
+                            x: 0;
+                            y: input.y + (root.error-line - 1) * root.line-h;
+                            width: sv.content-width;
+                            height: root.line-h;
+                            background: Theme.danger.with-alpha(0.14);
+                        }
+                        // The text itself is invisible when highlighted: the
+                        // colored spans below are drawn over it, glyph for glyph.
+                        input := TextInput {
+                            x: 12px;
+                            y: 12px;
+                            width: max(sv.visible-width - 24px, self.preferred-width);
+                            height: max(sv.visible-height - 24px, self.preferred-height);
+                            single-line: false;
+                            wrap: no-wrap;
+                            text <=> root.json;
+                            font-family: root.mono;
+                            font-size: Theme.fs-body;
+                            // Background-colored, not transparent: a transparent
+                            // TextInput is skipped entirely, selection included.
+                            color: root.highlighted ? Theme.card : Palette.foreground;
+                            selection-background-color: Theme.selection;
+                            selection-foreground-color: root.highlighted ? transparent : Palette.foreground;
+                            page-height: sv.visible-height;
+                            edited => {
+                                root.json-changed(self.text);
+                            }
+                            key-pressed(e) => {
+                                return root.shortcut(e);
+                            }
+                            // Keep the cursor in view while typing or moving with the keys.
+                            cursor-position-changed(cpos) => {
+                                root.caret-x = cpos.x;
+                                root.caret-y = cpos.y;
+                                root.caret-on = true;
+                                if (cpos.x + self.x + sv.content-x < 0px) {
+                                    sv.content-x = min(0px, -cpos.x);
+                                } else if (cpos.x + self.x + sv.content-x > sv.visible-width - 16px) {
+                                    sv.content-x = max(sv.visible-width - sv.content-width, sv.visible-width - 16px - cpos.x - self.x);
+                                }
+                                if (cpos.y + self.y + sv.content-y < 0px) {
+                                    sv.content-y = min(0px, -cpos.y);
+                                } else if (cpos.y + self.y + sv.content-y > sv.visible-height - Theme.fs-body * 2) {
+                                    sv.content-y = max(sv.visible-height - sv.content-height, sv.visible-height - Theme.fs-body * 2 - cpos.y - self.y);
+                                }
+                            }
+                        }
+                        if root.highlighted: Rectangle {
+                            x: input.x;
+                            y: input.y;
+                            width: input.width;
+                            height: input.height;
+                            for line[n] in root.code: Rectangle {
+                                y: n * root.line-h;
+                                height: root.line-h;
+                                for span in line.spans: Text {
+                                    x: span.col * root.char-w;
+                                    text: span.text;
+                                    font-family: root.mono;
+                                    font-size: Theme.fs-body;
+                                    color: root.layer-color(span.kind);
+                                    vertical-alignment: top;
+                                    accessible-role: none;
+                                }
+                            }
+                        }
+                        // Own caret: with transparent text the system one would be
+                        // invisible (macOS draws it in the selection color instead).
+                        if root.highlighted && Platform.os != OperatingSystemType.macos: Rectangle {
+                            x: input.x + root.caret-x;
+                            y: input.y + root.caret-y;
+                            width: 1.5px;
+                            height: root.line-h;
+                            background: Palette.foreground;
+                            visible: input.has-focus && root.caret-on;
+                        }
+                        Timer {
+                            interval: 530ms;
+                            running: input.has-focus && root.highlighted;
+                            triggered => {
+                                root.caret-on = !root.caret-on;
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 4px;
+                        background: root.valid ? Theme.ok : Theme.danger;
+                        animate background { duration: Theme.motion ? 180ms : 0ms; easing: ease-out; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.status;
+                        font-size: Theme.fs-small;
+                        color: root.valid ? Theme.muted : Theme.danger;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    if !root.valid && root.error-offset >= 0: Button {
+                        text: "Показать";
+                        clicked => {
+                            input.set-selection-offsets(root.error-offset, root.error-offset);
+                            input.focus();
+                        }
+                    }
+                }
+            }
+
+            if root.mode == 1: ScrollView {
+                vertical-stretch: 1;
+                content-width: max(self.visible-width, form.min-width);
+                content-height: max(self.visible-height, form.preferred-height);
+                form := VerticalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    for sec in root.sections: VerticalLayout {
+                        spacing: 12px;
+                        SectionLabel {
+                            text: sec.title;
+                        }
+                        SettingsCard {
+                            for f in sec.fields: VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    FieldLabel {
+                                        text: f.label;
+                                        color: f.error != "" ? Theme.danger : Theme.muted;
+                                    }
+                                    if f.options.length == 0: TextField {
+                                        text: f.value;
+                                        placeholder: f.placeholder;
+                                        edited => {
+                                            root.field-changed(f.index, self.text);
+                                        }
+                                        accepted => {
+                                            root.save();
+                                        }
+                                        key-pressed(e) => {
+                                            return root.shortcut(e);
+                                        }
+                                    }
+                                    if f.options.length > 0: ComboBox {
+                                        by-value: true;
+                                        height: 36px;
+                                        model: f.options;
+                                        current-value: f.value;
+                                        selected(v) => {
+                                            root.field-changed(f.index, v);
+                                        }
+                                    }
+                                }
+                                if f.error != "": Text {
+                                    x: 162px;
+                                    text: f.error;
+                                    font-size: Theme.fs-small;
+                                    color: Theme.danger;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.mode == 1 && root.status != "": Text {
+                text: root.status;
+                font-size: Theme.fs-small;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                if root.edited: Button {
+                    text: "Вернуть версию подписки";
+                    clicked => {
+                        root.reset();
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Ctrl+S — сохранить · Esc — отмена";
+                    font-size: Theme.fs-caption;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                Button {
+                    text: "Отмена";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                Button {
+                    text: root.live ? "Сохранить и переподключить" : "Сохранить";
+                    primary: true;
+                    enabled: root.mode == 1 || root.valid;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+component GlassPanel inherits Rectangle {
+    border-radius: 28px;
+    border-width: 1px;
+    border-color: Theme.edge;
+    background: Theme.light ? @linear-gradient(145deg,#ffffffed,#e9eff7ce) : @linear-gradient(145deg,#202020,#080808 65%,#050505);
+    drop-shadow-blur: 20px; drop-shadow-offset-y: 8px; drop-shadow-color: #080d1240;
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: @linear-gradient(145deg,#ffffff13,transparent 28%,transparent 72%,#ffffff06);
+    }
+    GlassRim { border-radius: parent.border-radius; strength: 0.85; }
+}
+component LogoTile inherits GlassPanel {
+    width: 74px; height: 76px; border-radius: 19px;
+    background: @linear-gradient(145deg,#adb7c06a,#333a4350 50%,#1b22288a);
+    Rectangle { x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px; border-radius: 18px; clip: true; background: #000000; Image { source: @image-url("assets/kawa-brand.png"); width: parent.width; height: parent.height; image-fit: contain; } }
+}
+component NavButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> selected;
+    in property <bool> compact;
+    callback clicked();
+    height: 48px;
+    min-width: 0px;
+    horizontal-stretch: 0;
+    border-radius: 18px;
+    border-width: 1px;
+    border-color: transparent;
+    background: nav-touch.has-hover && !root.selected ? @linear-gradient(115deg,#77808c22,#555f6b18) : transparent;
+    transform-scale: nav-touch.pressed ? 1.06 : 1;
+    animate background, border-color { duration: Theme.motion ? 200ms : 0ms; easing: ease-out; }
+    animate transform-scale { duration: Glass.spring; easing: cubic-bezier(0.34,1.56,0.64,1); }
+    accessible-role: button; accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        alignment: center; padding-left: 0px; padding-right: 0px; spacing: root.compact ? 6px : 10px;
+        VerticalLayout { alignment: center; horizontal-stretch: 0; Image { source: root.icon; width: root.compact ? 18px : 22px; height: self.width; colorize: root.selected ? #111111 : Palette.foreground; image-fit: contain; } }
+        Text { horizontal-stretch: 0; color: root.selected ? #111111 : Palette.foreground; text: root.text; font-size: root.compact ? 11px : 14px; font-weight: root.selected ? 600 : 400; vertical-alignment: center; overflow: elide; }
+    }
+    nav-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    forward-focus: keyboard;
+    keyboard := FocusScope {
+        x: 0; width: 0;
+        enabled: true;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: transparent;
+        border-width: keyboard.has-focus ? 2px : 0px;
+        border-color: Theme.light ? #354d70 : #a9c9f2;
+    }
+
+}
+component FilterChip inherits Rectangle {
+    in property <length> target-width: 0px;
+    in property <string> text; in property <bool> selected; callback clicked();
+    height: 44px;
+    min-width: max(label.preferred-width + 26px,root.target-width);
+    horizontal-stretch: 0;
+    border-radius: 21px; border-width: 1px;
+    border-color: Theme.light ? (root.selected ? #11161d : #0000001c) : (root.selected ? #ffffffaa : #ffffff24);
+    background: Theme.light ? (root.selected ? @linear-gradient(160deg,#3a424e,#11161d) : chip-touch.has-hover ? #0000000c : #ffffffb0) : (root.selected ? @linear-gradient(130deg,#ffffff,#d4dce7) : chip-touch.has-hover ? #ffffff16 : #ffffff07);
+    animate background { duration: Theme.motion ? 180ms : 0ms; easing: ease-out; }
+    clip: true;
+    transform-scale: chip-touch.pressed ? 1 + Glass.grow / max(self.width, self.height) : 1;
+    animate transform-scale { duration: Glass.spring; easing: cubic-bezier(0.34,1.56,0.64,1); }
+    accessible-role: button; accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    GlassGlow { active: chip-touch.pressed; px: chip-touch.pressed-x; py: chip-touch.pressed-y; dark-ink: root.selected != Theme.light; }
+    GlassRim { border-radius: parent.border-radius; primary: root.selected && !Theme.light; strength: root.selected ? 1 : 0.7; }
+    label := Text { text: root.text; font-size: 13px; font-weight: root.selected ? 600 : 400; color: root.selected ? (Theme.light ? #ffffff : #202631) : Palette.foreground; horizontal-alignment: center; vertical-alignment: center; }
+    chip-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    forward-focus: keyboard;
+    keyboard := FocusScope {
+        x: 0; width: 0;
+        enabled: true;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        border-radius: parent.border-radius;
+        background: transparent;
+        border-width: keyboard.has-focus ? 2px : 0px;
+        border-color: Theme.light ? #354d70 : #a9c9f2;
+    }
+
+}
+
+
+// The desktop adaptation keeps the reference's dot globe, oversized lettering,
+// pill actions and bottom navigation. All state is supplied by the real client.
+component RouteStrip inherits Rectangle {
+    in property <float> progress;
+    in property <float> alpha;
+    in property <float> arrival;
+    in property <float> phase;
+    height: 24px;
+    horizontal-stretch: 1;
+    clip: true;
+    background: transparent;
+    Rectangle { y: 11px; height: 2px; width: parent.width; background: Theme.light ? #cfd6df : #353535; }
+    Rectangle { y: 11px; height: 2px; width: parent.width * root.progress; opacity: root.alpha; background: @linear-gradient(90deg,#667a72,#36bd91); }
+    Rectangle { x: (parent.width - 8px) * root.progress - 3px; y: 5px; width: 14px; height: 14px; border-radius: 7px; opacity: root.alpha * 0.16; background: #7be2be; }
+    Rectangle { x: (parent.width - 8px) * root.progress + 1px; y: 9px; width: 6px; height: 6px; border-radius: 3px; opacity: root.alpha; background: root.arrival > 0.8 ? #67d8b0 : #e2f8ef; animate background { duration: Theme.motion ? 220ms : 0ms; easing: ease-out; } }
+    Rectangle { x: (parent.width - 8px) * root.phase + 2px; y: 10px; width: 4px; height: 4px; border-radius: 2px; opacity: root.alpha * root.arrival * 0.7; background: #d9f7eb; }
+}
+
+component AnimatedSessionCard inherits Rectangle {
+    in property <float> reveal;
+    in property <float> alpha;
+    in property <float> arrival;
+    property <float> shown: Theme.motion ? 0 : 1;
+    // Start after the native window can paint; init runs before it is visible.
+    Timer { interval: 50ms; running: root.shown == 0; triggered() => { root.shown = 1; } }
+    animate shown { duration: Theme.motion ? 520ms : 0ms; easing: cubic-bezier(0.22,1,0.36,1); }
+    horizontal-stretch: 1;
+    min-width: 0px;
+    background: transparent;
+    GlassPanel {
+        width: root.width; height: root.height;
+        y: (1 - root.shown) * 10px;
+        opacity: 0.4 + 0.6 * root.shown;
+        clip: true;
+        Rectangle {
+            width: 76px; height: parent.height;
+            x: (parent.width + self.width) * root.reveal - self.width;
+            opacity: Theme.motion ? root.alpha * (1 - root.arrival) : 0;
+            background: @linear-gradient(110deg,#ffffff00,#ffffff0c,#ffffff00);
+        }
+        @children
+    }
+}
+
+// Each cell owns its transition; unchanged digits and separators remain still.
+export global MetricFormatting {
+    pure callback character(string, int) -> string;
+    pure callback count(string) -> int;
+}
+component MetricGlyph inherits Rectangle {
+    in property <string> value;
+    in property <length> size;
+    in property <bool> dots: true;
+    property <string> displayed;
+    property <string> previous;
+    property <bool> reset: false;
+    property <float> phase: root.reset ? 0 : 1;
+    init => { root.displayed = root.value; }
+    changed value => {
+        if root.value != root.displayed {
+            root.previous = root.displayed;
+            root.displayed = root.value;
+            root.reset = Theme.motion && root.previous != "";
+        }
+    }
+    Timer { interval: 16ms; running: root.reset; triggered() => { root.reset = false; } }
+    animate phase { duration: root.reset ? 0ms : Theme.motion ? 180ms : 0ms; easing: ease-out; }
+    width: root.size * (root.value == ":" ? 0.42 : 0.62);
+    height: root.size * 1.2;
+    background: transparent;
+    Text { width: parent.width; height: parent.height; opacity: 1 - root.phase; text: root.previous; font-family: root.dots ? "Kawa Dots" : "Segoe UI"; font-size: root.size; vertical-alignment: center; horizontal-alignment: center; }
+    Text { width: parent.width; height: parent.height; opacity: root.phase; text: root.displayed; font-family: root.dots ? "Kawa Dots" : "Segoe UI"; font-size: root.size; vertical-alignment: center; horizontal-alignment: center; }
+}
+component MetricClock inherits Rectangle {
+    property <int> cell-count: MetricFormatting.count(root.value);
+    in property <string> value;
+    in property <length> size: 32px;
+    in property <bool> dots: true;
+    height: root.size * 1.2;
+    clip: true;
+    background: transparent;
+    HorizontalLayout {
+        spacing: 0px; alignment: start;
+        for index in root.cell-count: MetricGlyph { value: MetricFormatting.character(root.value,index); size: root.size; dots: root.dots; }
+    }
+}
+
+// Isolated presentation fixture. It has no subscription model or VPN backend.
+export component MotionFixtureWindow inherits Window {
+    title: "Проверка анимаций — компоненты";
+    width: 640px; height: 280px;
+    background: #000000;
+    in property <float> reveal;
+    in property <float> alpha;
+    in property <float> arrival;
+    in property <float> phase;
+    in property <string> time;
+    in property <string> graph: "M 0 28 L 200 28";
+    init => { Palette.color-scheme = ColorScheme.dark; }
+    Text { x: 20px; y: 15px; text: "Проверка компонентов анимации · тестовые кадры"; color: #aaaaaa; font-size: 12px; }
+    RouteStrip { x: 20px; y: 50px; width: 600px; progress: root.reveal; alpha: root.alpha; arrival: root.arrival; phase: root.phase; }
+    HorizontalLayout {
+        x: 20px; y: 100px; width: 600px; height: 145px; spacing: 12px;
+        AnimatedSessionCard {
+            reveal: root.reveal; alpha: root.alpha; arrival: root.arrival;
+            VerticalLayout { padding: 18px; spacing: 10px;
+                Text { text: "ВРЕМЯ"; color: #999999; font-size: 12px; }
+                MetricClock { value: root.time; }
+                Rectangle { background: transparent; vertical-stretch: 1; }
+            }
+        }
+        AnimatedSessionCard {
+            reveal: root.reveal; alpha: root.alpha; arrival: root.arrival;
+            VerticalLayout { padding: 18px; spacing: 10px;
+                Text { text: "СКОРОСТЬ"; color: #999999; font-size: 12px; }
+                Text { text: "Тестовые точки графика"; color: #eeeeee; font-size: 13px; }
+                Path { commands: root.graph; height: 40px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 200; viewbox-height: 32; fill: transparent; stroke: #eeeeee; stroke-width: 2px; stroke-line-cap: round; }
+            }
+        }
+    }
+}
+
+component DotDashboard inherits Rectangle {
+    in property <string> name;
+    in property <string> protocol;
+    in property <image> flag;
+    in property <bool> has-flag;
+    in property <bool> connected;
+    in property <string> state;
+    in property <string> detail;
+    in property <string> latency;
+    in property <bool> pinging;
+    callback ping();
+    in property <string> time;
+    in property <string> down;
+    in property <string> up;
+    in property <string> traffic-down;
+    in property <string> traffic-up;
+    in property <string> graph: "M 0 28 L 200 28";
+    in property <float> route-reveal;
+    in property <float> route-alpha;
+    in property <float> route-arrival;
+    in property <float> route-phase;
+    in property <bool> statistics;
+    in property <image> globe;
+    in property <string> origin;
+    in property <string> route-note;
+    in property <string> destination;
+    callback globe-drag(float,float,bool);
+    callback globe-home();
+    in property <string> connect-label;
+    in property <bool> connect-enabled;
+    callback connect();
+    callback servers();
+    in property <bool> wide: true;
+    in property <length> canvas-width: 980px;
+    background: transparent;
+    GridLayout {
+        padding: root.wide ? 12px : 8px;
+        spacing: root.wide ? 30px : 10px;
+        Rectangle {
+            col: 0; row: 0;
+            width: root.wide ? root.canvas-width * 0.42 : root.canvas-width - 16px;
+            horizontal-stretch: 1;
+            min-height: root.wide ? 200px : 80px;
+            vertical-stretch: 1;
+            background: transparent;
+            // A static soft pool under the globe; nothing here animates, so the
+            // window isn't redrawn every frame for it.
+            property <length> globe-size: min(self.width, self.height - 46px);
+            property <length> globe-top: (self.height - self.globe-size) / 2 - 20px;
+            Rectangle {
+                // A round radial pool squashed into a soft ellipse.
+                width: globe-size * 0.60; height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: globe-top + globe-size * 0.945 + 18px - self.height / 2;
+                transform-scale-y: 0.11;
+                // Dark theme: a faint light pool (a dark shadow would vanish on black).
+                background: @radial-gradient(circle, (Theme.light ? #00000050 : #ffffff30) 0%, (Theme.light ? #0000001c : #ffffff10) 40%, transparent 70%);
+                opacity: 0.85;
+            }
+            globe-surface := Rectangle {
+                background: transparent;
+                width: globe-size; height: self.width;
+                x: (parent.width - self.width)/2; y: globe-top;
+                Image { source: root.globe; width: parent.width; height: parent.height; image-fit: contain; }
+                TouchArea {
+                    mouse-cursor: self.pressed ? grabbing : grab;
+                    pointer-event(event) => { if event.kind == PointerEventKind.down { root.globe-drag(self.mouse-x / self.width,self.mouse-y / self.height,true); } if event.kind == PointerEventKind.up { root.globe-drag(0,0,false); } }
+                    moved => { if self.pressed { root.globe-drag(self.mouse-x / self.width,self.mouse-y / self.height,true); } }
+                }
+            }
+            Text { y: parent.height - 25px; height: 20px; width: parent.width; text: root.route-note != "" ? root.route-note : "Вращайте глобус мышью"; horizontal-alignment: center; color: Theme.muted; font-size: 11px; }
+            IconButton { x: parent.width - 40px; y: 8px; icon: Icons.refresh; label: "Вернуть вид глобуса"; clicked => { root.globe-home(); } }
+
+        }
+        VerticalLayout {
+            col: root.wide ? 1 : 0; row: root.wide ? 0 : 1;
+            min-width: root.wide ? 420px : 0px;
+            horizontal-stretch: 1;
+            spacing: root.wide ? 14px : 8px;
+            alignment: center;
+            HorizontalLayout {
+                height: 26px; spacing: 10px;
+                if root.has-flag: Image { source: root.flag; width: 30px; height: 24px; image-fit: contain; }
+                Rectangle { width: 8px; height: 8px; border-radius: 4px; y: 9px; background: root.connected ? #36bd91 : Theme.muted; }
+                Text { text: root.connected ? "ЗАЩИЩЕНО" : root.state; font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: root.connected ? #36bd91 : Theme.muted; vertical-alignment: center; overflow: elide; }
+            }
+            Text { text: root.name; font-family: "Kawa Dots"; font-size: root.wide ? 48px : 34px; color: Theme.light ? #171717 : #f4f4f4; overflow: elide; }
+            Text { text: root.protocol; color: Theme.muted; font-size: 14px; overflow: elide; }
+            HorizontalLayout {
+                height: 24px; spacing: 10px;
+                Text { text: root.origin; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
+                RouteStrip { progress: root.route-reveal; alpha: root.route-alpha; arrival: root.route-arrival; phase: root.route-phase; }
+                Button { text: root.pinging ? "Проверка…" : root.latency != "" ? "Пинг · " + root.latency : "Пинг"; enabled: root.connected && !root.pinging; height: 26px; min-width: 78px; font-size: 11px; clicked => { root.ping(); } }
+                Text { text: root.destination; font-size: 12px; font-weight: 600; overflow: elide; }
+                if root.has-flag: Image { source: root.flag; width: 28px; height: 20px; image-fit: contain; }
+            }
+            HorizontalLayout {
+                spacing: 12px; height: root.wide ? 48px : 44px;
+                Button { text: root.connect-label; primary: !root.connected; enabled: root.connect-enabled; min-width: 0px; font-size: root.wide ? 15px : 13px; height: root.wide ? 48px : 44px; clicked => { root.connect(); } }
+                Button { text: "Сменить сервер"; min-width: 0px; font-size: root.wide ? 15px : 13px; height: root.wide ? 48px : 44px; clicked => { root.servers(); } }
+            }
+            HorizontalLayout {
+                spacing: 12px; height: root.wide ? 120px : 100px;
+                AnimatedSessionCard {
+                    reveal: root.route-reveal; alpha: root.route-alpha; arrival: root.route-arrival;
+                    VerticalLayout {
+                        padding: 18px; spacing: 10px;
+                        Text { text: "ВРЕМЯ"; font-size: 12px; letter-spacing: 1.5px; color: Theme.muted; }
+                        MetricClock { value: root.time; size: root.wide ? 32px : 26px; }
+                        Rectangle { background: transparent; vertical-stretch: 1; }
+                    }
+                }
+                AnimatedSessionCard {
+                    reveal: root.route-reveal; alpha: root.route-alpha; arrival: root.route-arrival;
+                    VerticalLayout {
+                        padding: 18px; spacing: 6px;
+                        Text { text: "СКОРОСТЬ"; font-size: 12px; letter-spacing: 1.5px; color: Theme.muted; }
+                        MetricClock { value: "↓ " + root.down; size: 18px; dots: false; }
+                        MetricClock { value: "↑ " + root.up; size: 13px; dots: false; opacity: 0.62; }
+                        if root.wide: Path { commands: root.graph; height: 28px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 200; viewbox-height: 32; fill: transparent; stroke: Palette.foreground; stroke-width: 2px; stroke-line-cap: round; }
+                    }
+                }
+            }
+            if root.statistics: Text { text: "Трафик подписки   ↓ " + root.traffic-down + "    ↑ " + root.traffic-up; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+            if root.detail != "": Text { text: root.detail; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+        }
+    }
+}
+
+component SessionMetric inherits GlassPanel {
+    in property <string> title;
+    in property <string> value;
+    in property <string> hint;
+    in property <length> value-size: 26px;
+    border-radius: 18px;
+    VerticalLayout {
+        padding: 18px; spacing: 8px; alignment: start;
+        Text { text: root.title; color: Theme.muted; font-size: 12px; }
+        Text { text: root.value; font-size: root.value-size; font-weight: 600; overflow: elide; }
+        Text { text: root.hint; font-size: 11px; color: Theme.muted; wrap: word-wrap; }
+    }
+}
+component SessionDashboard inherits Rectangle {
+    in property <bool> compact;
+    in property <bool> connected;
+    in property <string> time;
+    in property <string> down;
+    in property <string> up;
+    in property <string> received;
+    in property <string> sent;
+    in property <string> peak;
+    in property <string> server;
+    in property <string> graph: "M 0 28 L 200 28";
+    in property <string> subscription-down;
+    in property <string> subscription-up;
+    background: transparent;
+    ScrollView {
+        content-height: max(self.visible-height,content.preferred-height);
+        content-width: self.visible-width;
+        content := VerticalLayout {
+            padding: 16px; spacing: 12px; alignment: start;
+            HorizontalLayout {
+                height: 40px;
+                Text { text: "Ваше соединение"; font-size: 28px; font-weight: 700; vertical-alignment: center; }
+                Text { text: root.connected ? "●  В сети" : "○  Не подключено"; font-size: 12px; color: root.connected ? #43c79e : Theme.muted; horizontal-alignment: right; vertical-alignment: center; }
+            }
+            Text { text: root.connected ? root.server + " · текущая сессия" : "Подключитесь к серверу, чтобы увидеть статистику сессии"; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 12px; height: 108px;
+                SessionMetric { value-size: root.compact ? 18px : 26px; title: "Время подключения"; value: root.time; hint: "Текущая сессия"; }
+                SessionMetric { value-size: root.compact ? 18px : 26px; title: "Получено"; value: root.received; hint: "Через VPN"; }
+                SessionMetric { value-size: root.compact ? 18px : 26px; title: "Отправлено"; value: root.sent; hint: "Через VPN"; }
+            }
+            GlassPanel {
+                height: 160px; border-radius: 20px;
+                VerticalLayout {
+                    padding: 20px; spacing: 12px;
+                    HorizontalLayout {
+                        Text { text: "Активность сети"; font-size: 16px; font-weight: 600; }
+                        Text { text: "Последние 32 секунды"; color: Theme.muted; font-size: 11px; horizontal-alignment: right; }
+                    }
+                    HorizontalLayout {
+                        spacing: 20px;
+                        Text { text: "↓  " + root.down; font-size: 20px; font-weight: 600; }
+                        Text { text: "↑  " + root.up; font-size: 20px; font-weight: 600; }
+                        if !root.compact: Text { text: "Пик загрузки  " + root.peak; color: Theme.muted; font-size: 12px; horizontal-alignment: right; }
+                    }
+                    Path { commands: root.graph; height: 70px; viewbox-x: 0; viewbox-y: 0; viewbox-width: 200; viewbox-height: 32; fill: transparent; stroke: Palette.foreground; stroke-width: 2px; stroke-line-cap: round; opacity: root.connected ? 1 : 0.25; }
+                }
+            }
+            HorizontalLayout {
+                height: 56px; spacing: 16px;
+                VerticalLayout {
+                    spacing: 6px; alignment: center;
+                    Text { text: "ТРАФИК ПОДПИСКИ"; color: Theme.muted; font-size: 11px; letter-spacing: 1px; }
+                    Text { text: "↓ " + root.subscription-down + "     ↑ " + root.subscription-up; font-size: 14px; }
+                }
+                Text { text: "Данные подписки приходят от провайдера. Счётчики сессии измеряются на VPN-интерфейсе."; color: Theme.muted; font-size: 11px; wrap: word-wrap; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
+// Window caption drawn by the app (Windows): themed, with the wordmark, the
+// header actions and the window buttons. Empty space drags the window.
+component CaptionButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> danger;
+    callback clicked();
+    width: 46px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    background: area.has-hover ? (root.danger ? #e81123 : Palette.foreground.with-alpha(area.pressed ? 0.14 : 0.08)) : transparent;
+    animate background { duration: Theme.motion ? 120ms : 0ms; easing: ease-out; }
+    Image { source: root.icon; width: 14px; height: 14px; colorize: area.has-hover && root.danger ? #ffffff : Palette.foreground; }
+    area := TouchArea { clicked => { root.clicked(); } }
+}
+
+component TitleBar inherits Rectangle {
+    in property <string> title;
+    in property <bool> routing-open;
+    in property <bool> window-buttons;
+    callback drag();
+    callback action(int);
+    callback buy();
+    callback routing();
+    callback report();
+    height: 46px;
+    background: Theme.light ? @linear-gradient(180deg,#ffffffee,#f3f6faee) : @linear-gradient(180deg,#16171a,#0b0c0e);
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.light ? #0000001a : @linear-gradient(90deg,#ffffff08,#ffffff2a 30%,#ffffff10 70%,#ffffff06); }
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left && root.window-buttons { root.drag(); }
+        }
+        double-clicked => { if root.window-buttons { root.action(1); } }
+    }
+    HorizontalLayout {
+        padding-left: 14px; padding-right: root.window-buttons ? 0px : 10px; spacing: 10px;
+        Image { source: @image-url("assets/kawa-wordmark.png"); y: (parent.height - self.height) / 2; height: 28px; width: 83px; image-fit: contain; colorize: Theme.accent; accessible-role: image; accessible-label: "Kawa VPN"; }
+        Text { text: root.title; color: Theme.muted; vertical-alignment: center; overflow: elide; horizontal-alignment: right; horizontal-stretch: 1; }
+        Button { y: (parent.height - self.height) / 2; text: root.width < 760px ? "Подписка" : "Мой Kawa VPN"; min-height: 30px; preferred-height: 30px; max-height: 30px; preferred-width: root.width < 760px ? 104px : 144px; max-width: root.width < 760px ? 104px : 144px; horizontal-stretch: 0; clicked => { root.buy(); } }
+        IconButton { y: (parent.height - self.height) / 2; height: 34px; icon: Icons.sort; label: root.routing-open ? "Вернуться назад" : "Маршрутизация"; clicked => { root.routing(); } }
+        IconButton { y: (parent.height - self.height) / 2; height: 34px; icon: Icons.report; label: "Сообщить о проблеме"; clicked => { root.report(); } }
+        if root.window-buttons: HorizontalLayout {
+            spacing: 0px;
+            Rectangle { width: 6px; }
+            CaptionButton { icon: Icons.minimize; label: "Свернуть"; clicked => { root.action(0); } }
+            CaptionButton { icon: Icons.maximize; label: "Развернуть"; clicked => { root.action(1); } }
+            CaptionButton { icon: Icons.close; label: "Закрыть"; danger: true; clicked => { root.action(2); } }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Kawa VPN";
+    icon: @image-url("assets/kawa-brand.png");
+    preferred-width: 1000px;
+    // Windows: the app draws its own caption (TitleBar); elsewhere the system one.
+    in property <bool> custom-frame;
+    no-frame: root.custom-frame;
+    callback window-action(int);
+    callback window-drag();
+    callback window-resize(int);
+    callback take-screenshot();
+    preferred-height: 640px;
+    min-width: 460px;
+    min-height: 420px;
+    background: Theme.light ? @linear-gradient(135deg,#e8edf4,#f6f8fb) : @linear-gradient(160deg,#101113 0%,#050506 38%,#000000 62%,#0a0b0d 100%);
+    default-font-size: Theme.fs-body;
+    default-font-family: root.font-family;
+
+    in property <[SubRow]> subs;
+    in property <bool> manual-selected;
+    in property <string> manual-meta;
+    in property <[ServerRow]> servers;
+    in-out property <int> view-page;
+    in-out property <int> server-filter;
+    in-out property <string> server-search;
+    in property <int> visible-server-count;
+    in property <[string]> subscription-names;
+    in-out property <int> subscription-index;
+    in property <string> selected-name: "Сервер не выбран";
+    in property <string> selected-endpoint: "Выберите сервер из списка";
+    in property <image> selected-flag;
+    in property <image> exit-flag;
+    in property <bool> exit-has-flag;
+    in-out property <bool> active-pinging;
+    in-out property <string> active-ping-text;
+    in property <bool> selected-has-flag;
+    in property <string> connection-time: "00:00:00";
+    in property <string> selected-protocol;
+    in property <image> globe-image;
+    in-out property <int> settings-category: 0;
+    in property <string> origin-country;
+    in property <string> exit-country;
+    property <string> globe-destination-country: root.exit-country != "" ? root.exit-country : root.destination-country;
+    property <bool> globe-same-country: root.origin-country == root.globe-destination-country;
+    in property <string> exit-label;
+    in property <string> origin-label: "Ваше устройство";
+    in property <string> origin-status: "Определяем страну устройства…";
+    in property <string> destination-country;
+    in property <string> destination-label: "Выберите сервер";
+    in property <string> session-down: "—";
+    in property <string> session-up: "—";
+    in property <string> session-peak: "—";
+    callback globe-drag(float,float,bool);
+    callback globe-home();
+    in property <string> speed-down: "—";
+    in property <string> speed-up: "—";
+    in property <string> speed-graph: "M 0 28 L 200 28";
+    in property <float> route-reveal;
+    in property <float> route-alpha;
+    in property <float> route-arrival;
+    in property <float> route-phase;
+    in property <string> transfer-down: "—";
+    in property <string> transfer-up: "—";
+    callback filter-changed();
+    callback favorite-server(int);
+    callback connect-server(int);
+    callback subscription-changed(int);
+    in-out property <int> current-sub: -1;
+    in-out property <int> current-server: -1;
+    in property <string> header-title;
+    in property <string> header-meta;
+    in property <string> announce;
+    // Traffic line under the header: "86 ГБ / ∞"; usage < 0 means unlimited.
+    in property <string> usage-text;
+    in property <float> usage-fraction: -1;
+    in property <bool> has-web-page;
+    in property <bool> has-support;
+    in property <bool> announce-hidden;
+    in-out property <string> font-family;
+    // Hand-added links have no traffic, web page or support link.
+    in property <bool> show-usage-row: true;
+    in-out property <bool> confirm-menu-delete;
+    in property <string> sub-error;
+    in property <bool> busy;
+    in property <string> status;
+    in-out property <bool> adding;
+    in-out property <string> add-error;
+    // Index of the subscription whose delete button awaits confirmation.
+    in-out property <int> confirm-remove-index: -1;
+    in-out property <bool> settings-open;
+    in-out property <bool> routing-open;
+    property <bool> routing-return-settings;
+    property <bool> routing-return-editor;
+    property <int> routing-return-page;
+    callback toggle-routing();
+    toggle-routing => {
+        if root.routing-open {
+            root.routing-open = false;
+            root.view-page = root.routing-return-page;
+            root.settings-open = root.routing-return-settings;
+            root.editor-open = root.routing-return-editor;
+        } else {
+            root.routing-return-page = root.view-page;
+            root.routing-return-settings = root.settings-open;
+            root.routing-return-editor = root.editor-open;
+            root.routing-open = true;
+            root.settings-open = false;
+            root.editor-open = false;
+        }
+    }
+    // Account entry is available independently of subscription state.
+    in property <bool> show-buy;
+
+    // Routing page (aliases into it).
+    in-out property <bool> routing-advanced <=> routing-page.advanced;
+    in-out property <bool> routing-lan <=> routing-page.lan;
+    in-out property <bool> routing-ru <=> routing-page.ru;
+    in-out property <bool> routing-whitelist <=> routing-page.whitelist;
+    in-out property <[GameRow]> routing-games <=> routing-page.games;
+    in-out property <[string]> routing-profiles <=> routing-page.profiles;
+    in-out property <int> routing-profile-index <=> routing-page.profile-index;
+    in-out property <string> routing-profile-name <=> routing-page.profile-name;
+    in-out property <[RuleRow]> routing-rules <=> routing-page.rules;
+    in-out property <int> routing-default-action <=> routing-page.default-action;
+    in-out property <bool> routing-keep-panel <=> routing-page.keep-panel;
+    in-out property <string> routing-domain-strategy <=> routing-page.domain-strategy;
+    in-out property <string> routing-geo-status <=> routing-page.geo-status;
+    in-out property <bool> routing-geo-busy <=> routing-page.geo-busy;
+    in-out property <string> routing-warnings <=> routing-page.warnings;
+    callback routing-changed <=> routing-page.changed;
+    callback routing-game-toggled <=> routing-page.game-toggled;
+    callback routing-rule-edited <=> routing-page.rule-edited;
+    callback routing-rule-moved <=> routing-page.rule-moved;
+    callback routing-rule-removed <=> routing-page.rule-removed;
+    callback routing-add-rule <=> routing-page.add-rule;
+    callback routing-add-profile <=> routing-page.add-profile;
+    callback routing-remove-profile <=> routing-page.remove-profile;
+    callback routing-select-profile <=> routing-page.select-profile;
+    callback routing-update-geo <=> routing-page.update-geo;
+    in-out property <int> routing-app-mode <=> routing-page.app-mode;
+    in-out property <[string]> routing-apps <=> routing-page.apps;
+    in-out property <[string]> routing-running <=> routing-page.running;
+    in-out property <bool> routing-picking <=> routing-page.picking;
+    callback routing-app-added <=> routing-page.app-added;
+    callback routing-app-removed <=> routing-page.app-removed;
+    callback routing-pick-running <=> routing-page.pick-running;
+    callback buy();
+    in-out property <bool> account-open;
+    in property <bool> account-logged-in;
+    in property <bool> account-busy;
+    in property <bool> account-pending;
+    in property <bool> account-has-invoice;
+    in property <bool> account-can-pay;
+    in property <bool> account-can-reset;
+    in-out property <bool> account-reset-confirm;
+    in property <string> account-summary;
+    in-out property <string> account-message;
+    in property <[string]> account-targets;
+    in-out property <int> account-target-index;
+    in property <[string]> account-offers;
+    in property <[string]> account-methods;
+    in-out property <int> account-offer-index;
+    in-out property <int> account-method-index;
+    callback account-login();
+    callback account-cancel-login();
+    callback account-reload();
+    callback account-target-changed(int);
+    callback account-pay();
+    callback account-open-payment();
+    callback account-logout();
+    callback account-reset();
+
+    // Settings page (aliases into it).
+    in-out property <bool> happ-enabled <=> settings-page.happ-enabled;
+    in-out property <string> app-version <=> settings-page.app-version;
+    in-out property <string> os <=> settings-page.os;
+    in-out property <string> os-version <=> settings-page.os-version;
+    in-out property <string> model <=> settings-page.model;
+    in-out property <string> locale <=> settings-page.locale;
+    in-out property <string> user-id <=> settings-page.user-id;
+    in-out property <string> hwid <=> settings-page.hwid;
+    in-out property <string> kawa-ua <=> settings-page.kawa-ua;
+    in-out property <string> kawa-hwid <=> settings-page.kawa-hwid;
+    in-out property <string> settings-helper-status <=> settings-page.helper-status;
+    in-out property <bool> settings-helper-busy <=> settings-page.helper-busy;
+    in-out property <int> ping-mode-index <=> settings-page.ping-mode-index;
+    in-out property <string> ping-threads <=> settings-page.ping-threads;
+    in-out property <string> ping-url <=> settings-page.ping-url;
+    in-out property <bool> ping-on-startup <=> settings-page.ping-on-startup;
+    in-out property <bool> autostart <=> settings-page.autostart;
+    in-out property <bool> autostart-connect <=> settings-page.autostart-connect;
+    in property <[string]> autostart-server-choices <=> settings-page.autostart-server-choices;
+    in-out property <int> autostart-server-index <=> settings-page.autostart-server-index;
+    in property <[string]> autostart-delay-choices <=> settings-page.autostart-delay-choices;
+    in-out property <int> autostart-delay-index <=> settings-page.autostart-delay-index;
+    callback ping-startup-changed <=> settings-page.ping-startup-changed;
+    callback autostart-changed <=> settings-page.autostart-changed;
+    in-out property <bool> send-device-info <=> settings-page.send-device-info;
+    in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
+    in-out property <string> font-choice <=> settings-page.font-choice;
+    in-out property <string> theme-choice <=> settings-page.theme-choice;
+    in-out property <bool> hysteria-restart <=> settings-page.hysteria-restart;
+    in-out property <string> hysteria-minutes <=> settings-page.hysteria-minutes;
+    in-out property <bool> telemetry-enabled <=> settings-page.telemetry-enabled;
+    in-out property <bool> auto-update <=> settings-page.auto-update;
+    in-out property <string> kawa-version <=> settings-page.kawa-version;
+    in-out property <string> update-info <=> settings-page.update-info;
+    callback report-problem <=> settings-page.report-problem;
+    callback open-link <=> settings-page.open-link;
+    callback local-document <=> settings-page.local-document;
+    callback check-update <=> settings-page.check-update;
+    // First start: ask about error reports.
+    in-out property <bool> consent-open;
+    in-out property <bool> consent-read;
+    in-out property <string> document-title;
+    in-out property <string> document-text;
+    callback consent(bool);
+    // "Сообщить о проблеме" dialog.
+    in-out property <bool> report-open;
+    in-out property <string> report-note;
+    in property <string> report-preview;
+    in property <bool> report-busy;
+    in property <string> report-code;
+    in-out property <bool> report-queued;
+    in property <string> report-error;
+    callback report-preview-requested();
+    callback report-send();
+    callback report-copy-code();
+    // Update banner in the sidebar ("" hides it).
+    in property <string> update-banner;
+    in property <string> update-button;
+    callback update-clicked();
+    // 0 = follow the system, 1 = dark, 2 = light.
+    in property <int> theme-mode: 1;
+    changed theme-mode => {
+        root.apply-theme();
+    }
+    init => {
+        root.apply-theme();
+    }
+    function apply-theme() {
+        Palette.color-scheme = root.theme-mode == 1 ? ColorScheme.dark
+            : root.theme-mode == 2 ? ColorScheme.light : ColorScheme.unknown;
+    }
+    in-out property <[string]> font-choices <=> settings-page.font-choices;
+    in property <bool> pinging;
+    // The sort button appears once this subscription has been pinged.
+    in property <bool> has-ping-results;
+    in property <bool> sort-by-ping;
+
+    // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed"
+    in property <string> conn-state: "idle";
+    in property <string> conn-title: "Не подключено";
+    in property <string> conn-detail;
+    in property <bool> can-connect;
+    // Live latency of the active connection (0 level = hidden).
+    in property <string> conn-ping-text;
+    in property <int> conn-ping-level;
+
+    in-out property <bool> helper-dialog;
+    in property <string> helper-dialog-text;
+    in property <bool> helper-busy;
+    in property <string> helper-error;
+
+    callback select-sub(int);
+    callback select-manual();
+    callback select-server(int);
+    callback remove-server(int);
+    callback add-subscription(string, string);
+    callback refresh-current();
+    callback open-web-page();
+    callback open-support();
+    callback copy-sub-link();
+    callback ping-current();
+    callback ping-active();
+    callback cancel-ping();
+    callback toggle-sort();
+    callback toggle-announce();
+    callback add-from-clipboard();
+    callback remove-sub(int);
+    callback settings-changed <=> settings-page.changed;
+    callback randomize-ids <=> settings-page.randomize-ids;
+    callback randomize-device <=> settings-page.randomize-device;
+    callback reset-happ <=> settings-page.reset;
+    callback reinstall-helper <=> settings-page.reinstall-helper;
+    callback uninstall-helper <=> settings-page.uninstall-helper;
+    callback open-settings();
+    callback toggle-connection();
+    callback install-helper();
+
+    // Server context menu and editor.
+    callback ping-server(int);
+    callback edit-server(int);
+    callback reset-server(int);
+    in-out property <bool> editor-open;
+    in property <int> editor-mode;
+    in property <string> editor-title;
+    in property <string> editor-subtitle;
+    in property <string> editor-note;
+    in-out property <string> editor-json;
+    in property <string> editor-lines;
+    in property <string> editor-mono;
+    in property <string> editor-status;
+    in property <bool> editor-valid: true;
+    in property <int> editor-error-offset: -1;
+    in property <int> editor-error-line;
+    in property <[CodeLine]> editor-code;
+    in property <bool> editor-plain;
+    in property <[EditSection]> editor-sections;
+    in property <bool> editor-edited;
+    in property <bool> editor-live;
+    callback editor-json-changed(string);
+    callback editor-format();
+    callback editor-save();
+    callback editor-cancel();
+    callback editor-field-changed(int, string);
+    callback editor-as-json();
+    callback editor-reset();
+
+    // Flipped by the app when the window comes back (restored, focused,
+    // uncovered): this window-sized, practically invisible fill changes, so
+    // the next frame repaints and presents the whole window, not only what
+    // changed. Windows does not keep the content of a minimized window.
+    in property <bool> repaint-all;
+    Rectangle {
+        background: root.repaint-all ? #00000001 : #00000000;
+    }
+
+
+    // Keys no field took: Ctrl+V (Cmd+V) adds a link from the clipboard.
+    forward-focus: shortcuts;
+    shortcuts := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape && root.routing-open {
+                root.toggle-routing();
+                return accept;
+            }
+            if (e.modifiers.control || e.modifiers.meta) && !e.modifiers.alt
+                && (e.text == "v" || e.text == "V" || e.text == "м" || e.text == "М") {
+                if !root.adding && !root.consent-open && !root.report-open && !root.editor-open {
+                    root.add-from-clipboard();
+                }
+                return accept;
+            }
+            return reject;
+        }
+        VerticalLayout {
+            y: 0px; height: parent.height;
+            spacing: 0px;
+            TitleBar {
+                title: root.header-title;
+                routing-open: root.routing-open;
+                window-buttons: root.custom-frame;
+                drag => { root.window-drag(); }
+                action(a) => { root.window-action(a); }
+                buy => { root.buy(); }
+                routing => { root.toggle-routing(); }
+                report => { root.report-problem(); }
+            }
+            VerticalLayout {
+            padding: 10px; padding-top: 10px; padding-bottom: 10px;
+            spacing: 10px;
+            if root.update-banner != "": GlassPanel {
+                height: 44px;
+                HorizontalLayout {
+                    padding: 6px; padding-left: 14px; spacing: 10px;
+                    Text { text: root.update-banner; vertical-alignment: center; overflow: elide; font-size: 13px; }
+                    if root.update-button != "": Button { text: root.update-button; preferred-height: 30px; min-height: 30px; clicked => { root.update-clicked(); } }
+                }
+            }
+            HorizontalLayout {
+            spacing: 0px;
+            Rectangle {
+                background: transparent;
+                horizontal-stretch: 1;
+                            routing-page := RoutingPage {
+                visible: root.routing-open && !root.editor-open;
+            }
+            settings-page := SettingsPage {
+                narrow: root.width < 750px;
+                category <=> root.settings-category;
+                visible: root.settings-open && !root.editor-open;
+                subs: root.subs;
+                current-sub: root.current-sub;
+                select-sub(i) => { root.select-sub(i); }
+                remove-sub(i) => { root.remove-sub(i); }
+                add-sub => { root.add-error = ""; root.adding = true; }
+                back => {
+                    root.settings-open = false;
+                    root.routing-open = false;
+                                root.editor-open = false;
+                }
+            }
+            if root.editor-open: ServerEditor {
+                mode: root.editor-mode;
+                title: root.editor-title;
+                subtitle: root.editor-subtitle;
+                note: root.editor-note;
+                json <=> root.editor-json;
+                lines: root.editor-lines;
+                mono: root.editor-mono;
+                status: root.editor-status;
+                valid: root.editor-valid;
+                error-offset: root.editor-error-offset;
+                error-line: root.editor-error-line;
+                code: root.editor-code;
+                plain: root.editor-plain;
+                sections: root.editor-sections;
+                edited: root.editor-edited;
+                live: root.editor-live;
+                json-changed(t) => {
+                    root.editor-json-changed(t);
+                }
+                format => {
+                    root.editor-format();
+                }
+                save => {
+                    root.editor-save();
+                }
+                cancel => {
+                    root.editor-cancel();
+                }
+                field-changed(i, v) => {
+                    root.editor-field-changed(i, v);
+                }
+                as-json => {
+                    root.editor-as-json();
+                }
+                reset => {
+                    root.editor-reset();
+                }
+            }
+
+                GridLayout {
+                    visible: !root.settings-open && !root.routing-open && !root.editor-open;
+                    spacing: 14px;
+                    if root.view-page == 0: DotDashboard {
+                        col: 0; row: 0;
+                        wide: root.width >= 900px;
+                        canvas-width: root.width - 20px;
+                        name: root.selected-name;
+                        protocol: root.selected-protocol;
+                        flag: root.conn-state == "connected" && root.exit-has-flag ? root.exit-flag : root.selected-flag; has-flag: root.conn-state == "connected" && root.exit-has-flag ? true : root.selected-has-flag;
+                        connected: root.conn-state == "connected";
+                        state: root.conn-title;
+                        detail: root.conn-detail;
+                        latency: root.active-ping-text;
+                        pinging: root.active-pinging;
+                        ping => { root.ping-active(); }
+                        time: root.connection-time;
+                        down: root.speed-down; up: root.speed-up;
+                        graph: root.speed-graph;
+                        route-reveal: root.route-reveal; route-alpha: root.route-alpha; route-arrival: root.route-arrival; route-phase: root.route-phase;
+                        traffic-down: root.transfer-down; traffic-up: root.transfer-up;
+                        statistics: false;
+                        route-note: root.conn-state != "connected" ? "" : root.origin-country == "" ? root.origin-status : root.globe-destination-country == "" ? "Страна выхода не определена" : root.globe-same-country ? "Устройство и выход в одной стране" : "";
+                        globe: root.globe-image; origin: root.origin-label; destination: root.conn-state == "connected" && root.exit-label != "" ? root.exit-label : root.destination-label;
+                        globe-drag(x,y,down) => { root.globe-drag(x,y,down); }
+                        globe-home => { root.globe-home(); }
+                        connect-label: root.conn-state == "connected" ? "Отключиться" : root.conn-state == "connecting" ? "Подключение…" : root.conn-state == "disconnecting" ? "Отключение…" : root.can-connect ? "Подключиться" : root.current-sub < 0 ? "Войти через бота" : "Выберите сервер";
+                        connect-enabled: root.conn-state != "connecting" && root.conn-state != "disconnecting" && (root.conn-state == "connected" || root.can-connect || root.current-sub < 0);
+                        connect => { if root.current-sub < 0 && root.conn-state != "connected" { root.buy(); } else { root.toggle-connection(); } }
+                        servers => { root.view-page = 1; }
+                    }
+
+                    if root.view-page == 2: SessionDashboard {
+                        compact: root.width < 750px;
+                        col: 0; row: 0;
+                        connected: root.conn-state == "connected";
+                        time: root.connection-time; down: root.speed-down; up: root.speed-up;
+                        received: root.session-down; sent: root.session-up; peak: root.session-peak;
+                        graph: root.speed-graph; server: root.selected-name;
+                        subscription-down: root.transfer-down; subscription-up: root.transfer-up;
+                    }
+
+                    if root.view-page == 1: GlassPanel {
+                        col: 0; row: 0;
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 18px;
+                            spacing: 14px;
+                            HorizontalLayout {
+                                height: 38px; spacing: 12px;
+                                Text { text: "Серверы"; font-size: 26px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: root.visible-server-count + " доступно в списке"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                                Rectangle { background: transparent; horizontal-stretch: 1; }
+                            }
+                            if root.width >= 900px: HorizontalLayout {
+                                height: 36px; spacing: 8px;
+                                for label[i] in ["Все","Обычные","Обход","Игровые","LTE","Избранное"]: FilterChip {
+                                    height: 36px; border-radius: 18px; text: label; selected: root.server-filter == i;
+                                    clicked => { root.server-filter = i; root.filter-changed(); }
+                                }
+                                TextField { search-icon: true; min-width: 150px; height: 36px; placeholder: "Найти сервер…"; text <=> root.server-search; edited => { root.filter-changed(); } }
+                            }
+                            if root.width < 900px: HorizontalLayout {
+                                height: 38px; spacing: 10px;
+                                ComboBox { min-width: 120px; height: 36px; model: ["Все", "Обычные", "Обход", "Игровые", "LTE", "Избранное"]; current-index <=> root.server-filter; selected => { root.filter-changed(); } }
+                                TextField { search-icon: true; min-width: 120px; height: 36px; placeholder: "Поиск…"; text <=> root.server-search; edited => { root.filter-changed(); } }
+                            }
+
+                            HorizontalLayout {
+                                height: 32px; spacing: Theme.narrow ? 6px : 16px;
+                                ComboBox { min-width: Theme.narrow ? 120px : 160px; height: 32px; model: root.subscription-names; current-index <=> root.subscription-index; selected(value) => { root.subscription-changed(self.current-index); } horizontal-stretch: 1; }
+                                IconButton { icon: Icons.add; label: "Добавить подписку"; clicked => { root.add-error = ""; root.adding = true; } }
+                                IconButton { icon: @image-url("icons/kawa-camera.svg"); label: "Скриншот"; clicked => { root.take-screenshot(); } }
+                                RefreshButton { spinning: root.busy; clicked => { root.refresh-current(); } }
+                                IconButton { icon: Icons.speed; label: "Проверить пинг"; enabled: !root.pinging; clicked => { root.ping-current(); } }
+                                Button { horizontal-stretch: 0; preferred-width: 80px; text: root.sort-by-ping ? "Пинг ↑" : "Пинг ↕"; preferred-height: 30px; min-height: 30px; min-width: 70px; font-size: 11px; clicked => { root.toggle-sort(); } }
+                                IconButton { icon: Icons.more; label: "Управление подпиской"; clicked => { subscription-menu.show(); } }
+                            }
+                            if root.sub-error != "": Text { text: root.sub-error; color: Theme.danger; wrap: word-wrap; }
+                            if root.servers.length == 0: EmptyState { title: "Твои серверы будут здесь"; hint: "Войди через бота или добавь ссылку на подписку. Обычный VPN — безлимитный."; vertical-stretch: 1; }
+                            if root.servers.length > 0 && root.visible-server-count == 0: EmptyState { title: "Серверы не найдены"; hint: "Измените запрос или выберите другой фильтр."; vertical-stretch: 1; }
+                            if root.visible-server-count > 0: ListView {
+                                vertical-stretch: 1;
+                                for srv[i] in root.servers: Rectangle {
+                                    row-menu := PopupWindow {
+                                        width: 220px; x: parent.width - 232px; y: 52px;
+                                        close-policy: close-on-click-outside;
+                                        GlassPanel {
+                                            VerticalLayout {
+                                                padding: 8px;
+                                                MenuItem { text: "Параметры сервера"; clicked => { root.edit-server(i); row-menu.close(); } }
+                                                MenuItem { text: "Проверить пинг"; enabled: !root.pinging; clicked => { root.ping-server(i); row-menu.close(); } }
+                                                MenuItem { text: "Сбросить изменения"; enabled: srv.edited; clicked => { root.reset-server(i); row-menu.close(); } }
+                                                if root.manual-selected: MenuItem {
+                                                    text: root.confirm-remove-index == i ? "Подтвердить удаление" : "Удалить сервер";
+                                                    danger: true;
+                                                    enabled: srv.shown && root.conn-state != "connecting" && root.conn-state != "disconnecting";
+                                                    clicked => { if root.confirm-remove-index == i { row-menu.close(); root.remove-server(i); } else { root.confirm-remove-index = i; } }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    height: srv.shown ? 62px : 0px;
+                                    clip: true;
+                                    GlassPanel {
+                                        height: 56px;
+                                        border-radius: 16px;
+                                        width: parent.width - 12px;
+                                        border-color: Theme.light ? (i == root.current-server ? #11161d80 : row-touch.has-hover ? #00000030 : #00000012) : (i == root.current-server ? #ffffff85 : row-touch.has-hover ? #ffffff40 : #ffffff12);
+                                        background: Theme.light ? (i == root.current-server ? #ffffff : row-touch.has-hover ? #ffffffd0 : #ffffff90) : (i == root.current-server ? @linear-gradient(110deg,#ffffff20,#ffffff0b) : row-touch.has-hover ? #ffffff0e : #ffffff04);
+                                        animate background, border-color { duration: Theme.motion ? 180ms : 0ms; easing: ease-out; }
+                                        Rectangle { width: 3px; height: 22px; x: 0px; y: 17px; border-radius: 1.5px; background: i == root.current-server ? (Theme.light ? #11161d : #d9e1de) : transparent; }
+                                        row-touch := TouchArea { enabled: srv.shown; mouse-cursor: pointer; clicked => { root.select-server(i); } }
+                                        HorizontalLayout {
+                                            padding-left: 10px; padding-right: 8px; spacing: 8px;
+                                            if srv.has-flag-image: VerticalLayout { alignment: center; horizontal-stretch: 0; Image { source: srv.flag-image; width: 30px; height: 26px; image-fit: contain; } }
+                                            if !srv.has-flag-image: VerticalLayout { alignment: center; horizontal-stretch: 0; Image { source: @image-url("icons/network-globe.svg"); width: 30px; height: 26px; image-fit: contain; colorize: Theme.muted; } }
+                                            VerticalLayout {
+                                                horizontal-stretch: 1; alignment: center; spacing: 5px;
+                                                Text { text: srv.name; font-size: 14px; font-weight: 600; overflow: elide; }
+                                                Text { text: srv.protocol + " · " + srv.transport; font-size: 11px; color: Theme.muted; overflow: elide; }
+                                            }
+                                            VerticalLayout { alignment: center; horizontal-stretch: 0; width: 54px;
+                                            Rectangle {
+                                                width: 54px; height: 28px; border-radius: 10px;
+                                                background: Theme.light ? (srv.ping-level == 1 ? #d5f0df : srv.ping-level == 2 ? #f8e8c4 : #0000000a) : (srv.ping-level == 1 ? #1e4930bb : srv.ping-level == 2 ? #62461690 : #ffffff0b);
+                                                Text { text: srv.ping-level == 4 ? "Нет" : srv.ping-text == "" ? "—" : srv.ping-text; font-size: 11px; font-weight: 600; color: srv.ping-level == 1 ? (Theme.light ? #1d7a45 : #7bdf91) : srv.ping-level == 2 ? (Theme.light ? #8a5a00 : #f1c967) : Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                                            }
+                                            }
+                                            if root.width >= 1400px: VerticalLayout { width: 66px; alignment: center; horizontal-stretch: 0; Chip { text: srv.protocol; } }
+                                            if root.width >= 1400px: VerticalLayout { width: 80px; alignment: center; horizontal-stretch: 0; Chip { text: srv.transport; } }
+                                            VerticalLayout { alignment: center; horizontal-stretch: 0; IconButton { enabled: srv.shown; icon: srv.favorite ? Icons.star-filled : Icons.star; label: srv.favorite ? "Убрать из избранного" : "В избранное"; tint: srv.favorite ? #f2d087 : Palette.foreground; clicked => { root.favorite-server(i); } } }
+                                            VerticalLayout { alignment: center; horizontal-stretch: 0;
+                                            Button {
+                                                min-width: 90px; preferred-width: 90px; height: 30px; font-size: 11px;
+                                                primary: i == root.current-server && root.conn-state == "connected";
+                                                text: i == root.current-server && root.conn-state == "connected" ? "Подключено" : "Подключиться";
+                                                enabled: srv.shown && root.conn-state != "connecting" && root.conn-state != "disconnecting";
+                                                clicked => { root.connect-server(i); }
+                                            }
+                                            }
+                                            VerticalLayout { alignment: center; horizontal-stretch: 0; IconButton { enabled: srv.shown; icon: Icons.chevron; label: "Параметры сервера"; clicked => { root.confirm-remove-index = -1; row-menu.show(); } } }
+                                        }
+                                    }
+                                }
+                            }
+                            if root.status != "": Text { text: root.status; font-size: 14px; color: Theme.muted; overflow: elide; }
+                        }
+                        subscription-menu := PopupWindow {
+                            width: 240px; x: parent.width - 250px; y: 86px;
+                            close-policy: close-on-click-outside;
+                            GlassPanel {
+                                VerticalLayout {
+                                    padding: 8px;
+                                    MenuItem { text: "Все подписки…"; clicked => { root.confirm-menu-delete = false; subscription-menu.close(); root.open-settings(); root.settings-category = 1; root.settings-open = true; root.routing-open = false; root.editor-open = false; } }
+                                    MenuItem { text: "Скопировать ссылку"; clicked => { root.copy-sub-link(); subscription-menu.close(); } }
+                                    MenuItem { text: "Открыть страницу подписки"; enabled: root.has-web-page; clicked => { root.open-web-page(); subscription-menu.close(); } }
+                                    MenuItem { text: "Мои ручные серверы"; clicked => { root.select-manual(); subscription-menu.close(); } }
+                                    MenuItem { text: root.confirm-menu-delete ? "Подтвердить удаление" : "Удалить подписку"; danger: true; enabled: !root.manual-selected && root.current-sub >= 0; clicked => { if root.confirm-menu-delete { root.remove-sub(root.current-sub); root.confirm-menu-delete = false; subscription-menu.close(); } else { root.confirm-menu-delete = true; } } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    
+        HorizontalLayout {
+            height: 64px; alignment: center;
+        nav-bar := GlassPanel {
+            height: 64px; width: min(800px,root.width - 40px); horizontal-stretch: 1;
+            property <length> tab-width: (self.width - 34px) / 4;
+            property <int> active-index: root.settings-open ? 3 : root.view-page;
+            Rectangle {
+                visible: !root.routing-open && !root.editor-open;
+                x: 8px + parent.active-index * (parent.tab-width + 6px);
+                y: 8px; width: parent.tab-width; height: parent.height - 16px;
+                border-radius: 23px; border-width: 1px; border-color: #ffffffc0;
+                background: @linear-gradient(155deg,#ffffff,#e6e6e6b0,#ffffffd0);
+                drop-shadow-blur: 14px; drop-shadow-offset-y: 3px; drop-shadow-color: #ffffff18;
+                animate x { duration: Theme.motion ? 460ms : 0ms; easing: cubic-bezier(0.34,1.36,0.64,1); }
+                GlassRim { border-radius: parent.border-radius; primary: true; }
+                Rectangle { x: 12px; y: 1px; width: parent.width - 24px; height: 1px; background: @linear-gradient(90deg,transparent,#ffffff,transparent); }
+            }
+            HorizontalLayout {
+                padding: 8px; spacing: 6px;
+                NavButton { width: nav-bar.tab-width; compact: root.width < 700px; text: "Главная"; icon: @image-url("icons/nav-home.svg"); selected: root.view-page == 0 && !root.settings-open && !root.routing-open; clicked => { root.view-page = 0; root.settings-open = false; root.routing-open = false; root.editor-open = false; } }
+                NavButton { width: nav-bar.tab-width; compact: root.width < 700px; text: "Серверы"; icon: @image-url("icons/nav-servers.svg"); selected: root.view-page == 1 && !root.settings-open && !root.routing-open; clicked => { root.view-page = 1; root.settings-open = false; root.routing-open = false; root.editor-open = false; } }
+                NavButton { width: nav-bar.tab-width; compact: root.width < 700px; text: "Статистика"; icon: @image-url("icons/nav-statistics.svg"); selected: root.view-page == 2 && !root.settings-open && !root.routing-open; clicked => { root.view-page = 2; root.settings-open = false; root.routing-open = false; root.editor-open = false; } }
+                NavButton { width: nav-bar.tab-width; compact: root.width < 700px; text: "Настройки"; icon: @image-url("icons/nav-settings.svg"); selected: root.settings-open; clicked => { root.open-settings(); root.settings-open = true; root.routing-open = false; root.editor-open = false; } }
+            }
+        }
+        }
+    }
+        }
+    }
+    // ── Helper install dialog ──────────────────────────────────
+    if root.helper-dialog: Rectangle {
+        // Animated 0 → 1 on open: backdrop fades, card settles from 96 %.
+        property <float> shown: 0;
+        init => {
+            self.shown = 1;
+        }
+        animate shown { duration: Theme.motion ? 240ms : 0ms; easing: ease-out; }
+        background: #000000a0;
+        opacity: self.shown;
+        TouchArea { }
+        Rectangle {
+            transform-scale: 0.96 + 0.04 * parent.shown;
+            width: min(520px, parent.width - 40px);
+            height: helper-layout.preferred-height;
+            border-radius: 16px;
+            background: Theme.base;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            helper-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Нужен помощник";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                Text {
+                    text: root.helper-dialog-text;
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.helper-error != "": Text {
+                    text: root.helper-error;
+                    color: Theme.danger;
+                    font-size: Theme.fs-small;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    if root.helper-busy: VerticalLayout {
+                        alignment: center;
+                        Spinner {
+                            indeterminate: true;
+                            width: 20px;
+                            height: 20px;
+                        }
+                    }
+                    Button {
+                        text: "Отмена";
+                        enabled: !root.helper-busy;
+                        clicked => {
+                            root.helper-dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "Установить";
+                        primary: true;
+                        enabled: !root.helper-busy;
+                        clicked => {
+                            root.install-helper();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        visible: root.account-open || self.opacity > 0;
+        opacity: root.account-open ? 1 : 0;
+        animate opacity { duration: Theme.motion ? 200ms : 0ms; easing: ease-out; }
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(600px, parent.width - 40px);
+            height: min(account-dialog.preferred-height, parent.height - 30px);
+            transform-scale: root.account-open ? 1 : 0.97;
+            animate transform-scale { duration: Theme.motion ? 260ms : 0ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
+            border-width: 1px;
+            border-color: #ffffff30;
+            drop-shadow-blur: 32px;
+            drop-shadow-color: #00000060;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 16px;
+            background: Theme.base;
+            ScrollView {
+                content-width: self.visible-width; content-height: account-dialog.preferred-height;
+            account-dialog := VerticalLayout {
+                width: parent.visible-width; height: self.preferred-height;
+                padding: 22px;
+                spacing: 12px;
+                Text { text: "Кабинет Kawa VPN"; font-size: Theme.fs-heading; font-weight: 800; }
+                if !root.account-logged-in: Text {
+                    text: "Войдите через @your_bot. Ваши подписки и серверы появятся автоматически.";
+                    wrap: word-wrap;
+                    color: Theme.muted;
+                }
+                if root.account-logged-in: Text { text: root.account-summary; wrap: word-wrap; }
+                Text {
+                    text: "Лимит трафика действует только на обходы. Обычный VPN — безлимитный.";
+                    wrap: word-wrap;
+                    color: Theme.muted;
+                    font-size: Theme.fs-small;
+                }
+                if root.account-logged-in: VerticalLayout {
+                    spacing: 10px;
+                    ComboBox {
+                        model: root.account-targets;
+                        current-index <=> root.account-target-index;
+                        enabled: !root.account-busy && !root.account-pending;
+                        selected(value) => { root.account-target-changed(self.current-index); }
+                    }
+                    ComboBox { model: root.account-offers; current-index <=> root.account-offer-index; enabled: !root.account-busy && !root.account-pending; }
+                    Text { text: "Оплата через Platega"; color: Theme.muted; }
+                    ComboBox { model: root.account-methods; current-index <=> root.account-method-index; enabled: !root.account-busy && !root.account-pending; }
+                    Button {
+                        text: "Купить / продлить";
+                        primary: true;
+                        enabled: root.account-can-pay && !root.account-busy && !root.account-pending;
+                        clicked => { root.account-pay(); }
+                    }
+                    if root.account-has-invoice: Button { text: "Открыть оплату"; clicked => { root.account-open-payment(); } }
+                    if root.account-can-reset && !root.account-reset-confirm: Button {
+                        text: "Заказ не найден — проверить кабинет";
+                        clicked => { root.open-link("https://example.com"); root.account-reset-confirm = true; }
+                    }
+                    if root.account-can-reset && root.account-reset-confirm: VerticalLayout {
+                        Text { text: "Убедитесь в кабинете и боте, что заказ не выполнен. Сброс здесь не отменяет платёж."; wrap: word-wrap; color: Theme.warn; }
+                        Button { text: "Я проверил: сбросить незавершённый заказ"; clicked => { root.account-reset(); } }
+                    }
+                }
+                if root.account-message != "": Text { text: root.account-message; wrap: word-wrap; color: Theme.muted; font-size: Theme.fs-small; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    if !root.account-logged-in && !root.account-busy: Button { text: "Войти через бота"; primary: true; clicked => { root.account-login(); } }
+                    if !root.account-logged-in && root.account-busy: Button { text: "Отменить вход"; clicked => { root.account-cancel-login(); } }
+                    if root.account-logged-in: Button { text: "Обновить"; enabled: !root.account-busy; clicked => { root.account-reload(); } }
+                    if root.account-logged-in: Button { text: "Выйти"; enabled: !root.account-busy && !root.account-pending; clicked => { root.account-logout(); } }
+                    Button { text: "Закрыть"; clicked => { root.account-open = false; } }
+                }
+                if root.account-logged-in: Button { text: "Открыть веб-кабинет"; clicked => { root.open-link("https://example.com"); } }
+            }
+            }
+        }
+    }
+
+    // ── Add subscription dialog ────────────────────────────────
+    if root.adding: Rectangle {
+        // Animated 0 → 1 on open: backdrop fades, card settles from 96 %.
+        property <float> shown: 0;
+        init => {
+            self.shown = 1;
+        }
+        animate shown { duration: Theme.motion ? 240ms : 0ms; easing: ease-out; }
+        background: #000000a0;
+        opacity: self.shown;
+        TouchArea { }
+        Rectangle {
+            transform-scale: 0.96 + 0.04 * parent.shown;
+            width: min(520px, parent.width - 40px);
+            height: dialog.preferred-height;
+            border-radius: 16px;
+            background: Theme.base;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            dialog := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Добавить";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                Text {
+                    text: "Ссылка на подписку из панели или бота, либо сами ссылки vless://, vmess://, trojan://, ss:// — можно несколько, каждую с новой строки. Одиночные ссылки попадут в группу «Мои серверы».";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                url-edit := TextField {
+                    placeholder: "https://…/sub/…  или  vless://…";
+                    accepted => {
+                        root.add-subscription(url-edit.text, name-edit.text);
+                    }
+                }
+                name-edit := TextField {
+                    placeholder: "Название (необязательно)";
+                    accepted => {
+                        root.add-subscription(url-edit.text, name-edit.text);
+                    }
+                }
+                if root.add-error != "": Text {
+                    text: root.add-error;
+                    color: Theme.danger;
+                    font-size: Theme.fs-small;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: "Отмена";
+                        clicked => {
+                            root.adding = false;
+                        }
+                    }
+                    Button {
+                        text: "Добавить";
+                        primary: true;
+                        clicked => {
+                            root.add-subscription(url-edit.text, name-edit.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Error reports: first-start question ────────────────────
+    if root.consent-open: Rectangle {
+        background: #000000a0; TouchArea { }
+        Rectangle {
+            width: min(640px,parent.width - 32px); height: min(580px,parent.height - 32px);
+            border-radius: 16px; background: Theme.base;
+            VerticalLayout { padding: 20px; spacing: 12px;
+                Text { text: "Диагностика Kawa VPN"; font-size: Theme.fs-heading; font-weight: 800; }
+                Text { text: "Разрешаете автоматически отправлять отчёты о крашах и сбоях? Это добровольно: отказ не ограничивает VPN и подписку."; wrap: word-wrap; }
+                ScrollView { vertical-stretch: 1;
+                    VerticalLayout { padding: 8px; spacing: 12px;
+                        Text { text: "Зачем нужны отчёты"; font-weight: 700; }
+                        Text { text: "Поддержка Kawa VPN использует их для поиска ошибок, восстановления работы и улучшения стабильности приложения. Сбор начинается только после вашего явного согласия. Политика диагностики: редакция 4 от 11.10.2026."; wrap: word-wrap; color: Theme.muted; }
+                        Text { text: "Что может быть в отчёте"; font-weight: 700; }
+                        Text { text: "Версия и сборка Kawa VPN, ОС и архитектура, модель компьютера, CPU, число потоков и объём RAM; случайный идентификатор установки для группировки отчётов; тип и текст ошибки, стек Rust panic или код исключения Windows; последние технические действия и очищенные фрагменты журналов приложения, Xray и службы VPN. Снимок создаётся примерно раз в 10 секунд. После неожиданного завершения он отправляется при следующем запуске; причиной может быть и принудительное закрытие через диспетчер задач."; wrap: word-wrap; color: Theme.muted; }
+                        Text { text: "IP, передача и получатели"; font-weight: 700; }
+                        Text { text: "Для отчёта приложение отдельно определяет публичный IP провайдера: один HTTPS-запрос к серверу Kawa через физическое интернет-подключение, вне VPN, даже если VPN включён. Сервер также может видеть другой адрес отправки отчёта — например, выход VPN. Если IP провайдера определить не удалось, он не подменяется локальным адресом. Отчёт передаётся по HTTPS на сервер Kawa VPN в Германии и администратору поддержки через Telegram в виде сообщения и JSON-файла. При отсутствии сети он сохраняется локально и отправляется позже. Обработка происходит на сервере в Германии и в инфраструктуре Telegram."; wrap: word-wrap; color: Theme.muted; }
+                        Text { text: "Очистка и ограничения"; font-weight: 700; }
+                        Text { text: "Приложение удаляет распознаваемые ссылки подписок, пароли, токены, ключи, UUID, адреса серверов и домашние пути из текстовых журналов. Дампы памяти, содержимое личных файлов, скриншоты, переписка и история браузера не собираются этой функцией. Автоматическая очистка не может гарантировать удаление любого произвольного текста. Перед ручной отправкой можно нажать «Что отправится?» и проверить отчёт; не пишите в описании пароли или личные сведения."; wrap: word-wrap; color: Theme.muted; }
+                        Text { text: "Хранение, отказ и удаление"; font-weight: 700; }
+                        Text { text: "В активной базе сервера отчёты хранятся до 90 дней. Отправленные сообщения в Telegram не удаляются автоматически по этому сроку. Для запроса удаления у поддержки сообщите код KW- через @your_bot. Согласие можно отозвать: Настройки → Отчёты и обновления. Новые автоматические отчёты перестанут отправляться, локальная очередь будет удалена; уже полученные отчёты от этого не удаляются. Технические локальные журналы, необходимые для работы VPN, могут продолжать вестись. Разовая ручная отправка доступна и при выключенной автоматической отправке и требует отдельного нажатия «Отправить». Обновления и авторизация имеют свои сетевые запросы и не управляются этим согласием."; wrap: word-wrap; color: Theme.muted; }
+                    }
+                }
+                HorizontalLayout { spacing: 8px;
+                    CheckBox { checked <=> root.consent-read; horizontal-stretch: 0; }
+                    Text { text: "Я прочитал описание и согласен на указанную диагностику"; horizontal-stretch: 1; wrap: word-wrap; font-size: 12px; vertical-alignment: center; }
+                }
+                HorizontalLayout { spacing: 8px;
+                    Button { text: "Не отправлять"; clicked => { root.consent(false); } }
+                    Button { text: "Разрешить"; enabled: root.consent-read; clicked => { root.consent(true); } }
+                }
+            }
+        }
+    }
+
+    if root.document-text != "": Rectangle {
+        background: #000000a0; TouchArea { }
+        Rectangle {
+            width: min(760px,parent.width - 32px); height: min(560px,parent.height - 32px);
+            border-radius: 16px; background: Theme.base;
+            VerticalLayout { padding: 20px; spacing: 12px;
+                Text { text: root.document-title; font-size: Theme.fs-heading; font-weight: 700; }
+                ScrollView { vertical-stretch: 1;
+                    VerticalLayout { padding: 8px;
+                        Text { text: root.document-text; wrap: word-wrap; font-size: 12px; color: Palette.foreground; }
+                    }
+                }
+                Button { text: "Закрыть"; clicked => { root.document-text = ""; } }
+            }
+        }
+    }
+
+    // ── "Сообщить о проблеме" ──────────────────────────────────
+    if root.report-open: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(620px, parent.width - 40px);
+            height: min(report-layout.preferred-height, parent.height - 40px);
+            border-radius: 16px;
+            background: Theme.base;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            report-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Сообщить о проблеме";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                if root.report-code == "": VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "Что случилось? Нажимая «Отправить», вы разрешаете передать поддержке описание, очищенные логи, ОС, модель, CPU/RAM и публичный IP провайдера. IP определяется отдельным HTTPS-запросом к серверу Kawa через физическую сеть, вне VPN, даже при включённом VPN. Активная база: 90 дней; сообщения Telegram автоматически не удаляются. Удаление: @your_bot, укажите код отчёта.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    TextField {
+                        text <=> root.report-note;
+                        placeholder: "Например: не подключается к Нидерландам после обновления";
+                        accepted => {
+                            root.report-send();
+                        }
+                    }
+                    if root.report-preview != "": Rectangle {
+                        height: 220px;
+                        border-radius: 14px;
+                        background: Theme.card;
+                        ScrollView {
+                            x: 10px;
+                            y: 8px;
+                            width: parent.width - 20px;
+                            height: parent.height - 16px;
+                            content-width: max(self.visible-width, preview.preferred-width);
+                            content-height: preview.preferred-height;
+                            preview := Text {
+                                text: root.report-preview;
+                                font-family: root.editor-mono;
+                                font-size: Theme.fs-caption;
+                                color: Theme.muted;
+                            }
+                        }
+                    }
+                    if root.report-error != "": Text {
+                        text: root.report-error;
+                        color: Theme.danger;
+                        font-size: Theme.fs-small;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: root.report-preview == "" ? "Что отправится?" : "Обновить";
+                            clicked => {
+                                root.report-preview-requested();
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        if root.report-busy: VerticalLayout {
+                            alignment: center;
+                            Spinner {
+                                indeterminate: true;
+                                width: 20px;
+                                height: 20px;
+                            }
+                        }
+                        Button {
+                            text: "Отмена";
+                            enabled: !root.report-busy;
+                            clicked => {
+                                root.report-open = false;
+                            }
+                        }
+                        Button {
+                            text: "Отправить";
+                            primary: true;
+                            enabled: !root.report-busy;
+                            clicked => {
+                                root.report-send();
+                            }
+                        }
+                    }
+                }
+                if root.report-code != "": VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: root.report-queued ? "Отчёт сохранён на устройстве и отправится при восстановлении сети. Код отчёта:" : "Отчёт отправлен поддержке Kawa VPN. Код отчёта:";
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.report-code;
+                        font-size: Theme.fs-display;
+                        font-weight: 800;
+                        font-family: root.editor-mono;
+                        color: Theme.accent;
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Button {
+                            text: "Скопировать код";
+                            clicked => {
+                                root.report-copy-code();
+                            }
+                        }
+                        Button {
+                            text: "Готово";
+                            primary: true;
+                            clicked => {
+                                root.report-open = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Resize handles for the app-drawn frame (topmost, a few pixels wide).
+    if root.custom-frame: Rectangle {
+        property <length> e: 5px;
+        TouchArea { x: 0; y: e; width: e; height: parent.height - 2 * e; mouse-cursor: ew-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(0); } } }
+        TouchArea { x: parent.width - e; y: e; width: e; height: parent.height - 2 * e; mouse-cursor: ew-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(1); } } }
+        TouchArea { x: e; y: 0; width: parent.width - 2 * e; height: e; mouse-cursor: ns-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(2); } } }
+        TouchArea { x: e; y: parent.height - e; width: parent.width - 2 * e; height: e; mouse-cursor: ns-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(3); } } }
+        TouchArea { x: 0; y: 0; width: e * 2; height: e * 2; mouse-cursor: nwse-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(4); } } }
+        TouchArea { x: parent.width - 2 * e; y: 0; width: e * 2; height: e * 2; mouse-cursor: nesw-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(5); } } }
+        TouchArea { x: 0; y: parent.height - 2 * e; width: e * 2; height: e * 2; mouse-cursor: nesw-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(6); } } }
+        TouchArea { x: parent.width - 2 * e; y: parent.height - 2 * e; width: e * 2; height: e * 2; mouse-cursor: nwse-resize; pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.window-resize(7); } } }
+    }
+}

@@ -1,7 +1,7 @@
 # Kawa desktop packaging
 
 Run commands from the source root. Rust 1.99.0, locked Cargo dependencies and
-vendored `vendor/DUOTUN` are required; no private checkout or deploy key is used.
+vendored `vendor/KAWATUN` are required; no private checkout or deploy key is used.
 Xray 26.3.27, AppImageTool 1.9.1 and AppImage runtime 20251108 are pinned with SHA-256 verification.
 `packaging/common.sh` creates the source ZIP through the distribution tool and
 embeds GPL, additional permission, third-party and MIT dependency notices.

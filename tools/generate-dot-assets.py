@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
-out=Path(__file__).resolve().parents[1]/'crates/duoray-gui/ui/assets'
+out=Path(__file__).resolve().parents[1]/'crates/kawaray-gui/ui/assets'
 # Five-column matrix. Cyrillic glyphs are drawn explicitly, not copied from a font.
 patterns={
 'А':'01110/10001/10001/11111/10001/10001/10001','Б':'11111/10000/10000/11110/10001/10001/11110',
