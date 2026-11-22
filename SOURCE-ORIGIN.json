@@ -1,0 +1,13 @@
+{
+  "upstream": "https://github.com/m-a-prod/DUORAY",
+  "base_revision": "7f185667c81fff67463861578e589f343c63f250",
+  "based_on_working_release": "0.4.25",
+  "modifications": "Kawa VPN",
+  "date": "2026-10-22",
+  "duotun": {
+    "upstream": "https://github.com/m-a-prod/DUOTUN",
+    "base_revision": "1928e17ffa828968d614c36eb7ae2f2a36829353",
+    "license": "MIT",
+    "local_modifications": "2026-10-23: directional per-session IP counters before TCP NAT reinjection; original MIT license preserved"
+  }
+}

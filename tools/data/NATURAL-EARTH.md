@@ -1,0 +1,13 @@
+# Natural Earth land data
+
+Dataset: ne_110m_land, from natural-earth-vector release v5.1.2.
+Source: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_110m_land.geojson
+SHA-256: 9e0729ee253ca7d7a5c4ae9395fb1902264c5377c52e224d13dd85010e2835d9
+Dataset page: https://www.naturalearthdata.com/downloads/110m-physical-vectors/110m-land/
+Terms: https://www.naturalearthdata.com/about/terms-of-use/
+
+Natural Earth vector and raster map data are in the public domain. Authors
+include Tom Patterson, Nathaniel Vaughn Kelso and other contributors.
+The runtime mesh is derived by tools/generate-globe-mesh.py. Only the small
+binary mesh is embedded in the application; the polygons support reproducible
+development builds and do not cause any runtime download.

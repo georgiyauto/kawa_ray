@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kawa VPN
+Comment=VPN client with account and subscriptions
+Exec=kawa-vpn
+Icon=kawa-vpn
+Categories=Network;
+Terminal=false

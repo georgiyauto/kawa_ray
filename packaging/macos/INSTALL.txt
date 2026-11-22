@@ -1,0 +1,14 @@
+Kawa VPN for macOS
+
+1. Copy Kawa VPN.app to /Applications.
+2. Run the included KawaVPN-<version>-helper-<architecture>.pkg through macOS Installer.
+   It installs the root-owned helper in /Library/PrivilegedHelperTools.
+3. Open Kawa VPN from /Applications as your normal logged-in user.
+
+These builds have ad-hoc signatures only. They are not Apple Developer ID signed
+or notarized. Do not disable Gatekeeper or system protections. If your macOS
+policy blocks this build, a Developer ID signed release is required.
+
+Helper service maintenance/removal uses the root-owned helper's
+--install-service --allowed-uid <uid> / --uninstall-service command.
+UID 0 is never an authorized desktop account. Account data is retained.

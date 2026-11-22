@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+helper=/Library/PrivilegedHelperTools/pro.vinnikov.kawavpn.helper
+/usr/sbin/chown root:wheel "$helper"
+/bin/chmod 755 "$helper"
+uid=$(/usr/bin/stat -f %u /dev/console)
+case "$uid" in ''|*[!0-9]*|0) echo 'Helper installed; launch Kawa VPN from a logged-in account to configure it.' ;; *) "$helper" --install-service --allowed-uid "$uid" ;; esac
+exit 0

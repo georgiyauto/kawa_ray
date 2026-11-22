@@ -1,0 +1,38 @@
+# Validation artifacts only; public release signing stays on the owner's machine.
+name: Kawa Android validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kawa-android-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Restore checksum-verified native dependencies
+        run: python3 android/tools/fetch-dependencies.py
+      - name: Android SDK packages
+        run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0'
+      - name: Verify source distribution and build debug candidate
+        run: |
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          python3 tools/test_source_distribution.py
+          python3 tools/make-source-archive.py --version 0.4.26 --output android/app/src/main/assets/source.zip
+          chmod +x android/gradlew
+          android/gradlew -p android --no-daemon --console=plain :domain:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-debug-validation-not-public-release
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/androidTest/debug/*.apk
+            android/app/build/reports/lint-results-debug.*
+            android/domain/build/test-results/test/*.xml

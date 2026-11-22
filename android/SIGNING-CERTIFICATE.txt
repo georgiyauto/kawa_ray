@@ -1,0 +1,9 @@
+Kawa VPN Android release certificate
+Created: 2026-10-22
+Subject: CN=Kawa VPN, O=Kawa VPN
+RSA: 3072 bits
+Certificate SHA-256: c08a348905ca3a1e736bc8af5aa358bf7bb378406046b06da7a037cc35e79b98
+
+This is public verification metadata, not a private signing key. The persistent
+PKCS12 store and password are kept outside the source distribution. Future
+updates to this Android package must use the same signing key.

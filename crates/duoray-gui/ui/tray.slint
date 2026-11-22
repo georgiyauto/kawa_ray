@@ -1,0 +1,27 @@
+export component KawaTray inherits SystemTrayIcon {
+    icon: @image-url("assets/kawa-brand.png");
+    in property <string> status-tooltip: "Kawa VPN";
+    tooltip: root.status-tooltip;
+    title: "Kawa VPN";
+    in property <string> connect-title: "Подключить — сервер не выбран";
+    in property <bool> can-connect: false;
+    in property <bool> can-disconnect: false;
+    callback connect-selected();
+    callback disconnect();
+    callback exit();
+    callback restore-window();
+    clicked => { root.restore-window(); }
+    Menu {
+        MenuItem {
+            title: root.connect-title;
+            enabled: root.can-connect;
+            activated => { root.connect-selected(); }
+        }
+        MenuItem {
+            title: "Отключить";
+            enabled: root.can-disconnect;
+            activated => { root.disconnect(); }
+        }
+        MenuItem { title: "Закрыть"; activated => { root.exit(); } }
+    }
+}
