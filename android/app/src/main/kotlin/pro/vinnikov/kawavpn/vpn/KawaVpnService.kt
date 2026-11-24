@@ -40,7 +40,11 @@ class KawaVpnService : VpnService() {
         @Volatile private var engineOwner: KawaVpnService? = null
         private val controller = DialerController { fd -> engineOwner?.protectFd(fd) ?: false }
         private val registered = java.util.concurrent.atomic.AtomicBoolean(false)
+        /** A normal failed connect (3 attempts with checks) ends in about a minute; past this it is stuck. */
+        private const val CONNECT_DEADLINE_MS = 90_000L
+        private const val FAIL_TEXT = "Сервер не отвечает из этой сети. Выберите другой сервер; на мобильном интернете с белыми списками — сервер обхода (LTE)."
     }
+    private var watchdog: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private var tun: ParcelFileDescriptor? = null
     private var session: VpnSession? = null
@@ -86,15 +90,34 @@ class KawaVpnService : VpnService() {
             invalidate()
             val attempt = generation.get()
             startForeground(1, notification("Смена сервера…"))
+            watch(attempt)
             scope.launch { disconnect(); if(generation.get()==attempt) { startForeground(1,notification("Подключение…"));connect(attempt) } }
         } else if (intent?.action == CONNECT) {
             autoRetries = 0; reachedConnected = false; lastFailure = ""
             val attempt = generation.get()
             startForeground(1, notification("Подключение…"))
+            watch(attempt)
             scope.launch { connect(attempt) }
         } else if (intent?.action == PING) scope.launch { if (status.value.state == ConnectionState.CONNECTED) ping() }
         else { invalidate(); scope.launch { disconnect(); stopSelf(startId) } }
         return START_NOT_STICKY
+    }
+    /**
+     * Ends a connect that never finishes. It runs off the service thread on purpose: when a native
+     * Xray call hangs there, nothing queued behind it would ever show the error or send a report.
+     */
+    private fun watch(attempt: Long) {
+        watchdog?.cancel()
+        watchdog = CoroutineScope(Dispatchers.Default).launch {
+            delay(CONNECT_DEADLINE_MS)
+            if (generation.get() != attempt || reachedConnected || status.value.state != ConnectionState.CONNECTING) return@launch
+            Diagnostics.log("connect watchdog: still connecting after ${CONNECT_DEADLINE_MS / 1000} s")
+            Diagnostics.auto("connect_stuck", "Подключение не завершилось за ${CONNECT_DEADLINE_MS / 1000} с\n$lastFailure")
+            val name = status.value.name
+            invalidate()
+            status.value = TunnelStatus(ConnectionState.ERROR, name, error = FAIL_TEXT)
+            scope.launch { disconnect(preserveError = true); stopSelf() }
+        }
     }
     private fun probe(client: OkHttpClient, url: String): Boolean = runCatching {
         val call = client.newCall(Request.Builder().url(url).build())
@@ -126,15 +149,6 @@ class KawaVpnService : VpnService() {
         }
         return false
     }
-    private fun physicalNetwork(cm: ConnectivityManager, excluded: Network? = null): Network? =
-        cm.allNetworks.filter { it != excluded }.mapNotNull { network ->
-            val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return@mapNotNull null
-            val score = (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 10 else 0) +
-                (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 2 else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) 3 else 0)
-            network to score
-        }.maxByOrNull { it.second }?.first
-
     private fun updateResolver(cm: ConnectivityManager, network: Network?) {
         // Routers often list an IPv6 link-local resolver (fe80::…%wlan0) first: Xray
         // cannot dial it ("invalid argument") and then no server name resolves.
@@ -151,7 +165,7 @@ class KawaVpnService : VpnService() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             private fun refresh(excluded: Network? = null, resolverChanged: Boolean = false) {
                 if (generation.get() != attempt) return
-                val next = physicalNetwork(cm, excluded)
+                val next = underlyingNetwork(cm, excluded)
                 if (next == physicalNetwork && !resolverChanged) return
                 physicalNetwork = next
                 val changed = SystemClock.elapsedRealtime()
@@ -216,7 +230,7 @@ class KawaVpnService : VpnService() {
             Diagnostics.context = JsonObject().apply { addProperty("server", profile.name); addProperty("protocol", protocol); addProperty("all_traffic", saved.allTraffic); addProperty("ipv6", saved.ipv6); addProperty("rules", saved.routing.rules.size); addProperty("excluded_apps", saved.routing.excludedApps.size); addProperty("attempt", autoRetries) }
             Diagnostics.log(if (resume) "reconnect ${autoRetries}/2 · ${profile.name} ($protocol)" else "connect · ${profile.name} ($protocol)")
             val cm = getSystemService(ConnectivityManager::class.java)
-            val physical = physicalNetwork(cm)
+            val physical = underlyingNetwork(cm)
             physicalNetwork = physical
             networkChangedAt.set(-1)
             // The physical country only labels the globe: never make the user wait for it.
@@ -284,18 +298,27 @@ class KawaVpnService : VpnService() {
             // Balancers in panel configs pick servers from Xray's observatory, which
             // has no results for the first seconds: until then traffic takes the last
             // fallback (often Hysteria). Keep checking for a while instead of failing.
-            session = VpnSession(driver) { settle(attempt) }
+            // Like Happ/Incy the tunnel counts as up as soon as Xray runs; the connectivity
+            // check and the exit-country lookup follow in the background, and a tunnel that
+            // never answers goes through the same automatic reconnects as before.
+            session = VpnSession(driver) { true }
             if (session!!.connect()) {
-                val exit = country()
                 synchronized(transitionLock) {
                     check(engineOwner === this && generation.get() == attempt && prepare(this) == null)
-                    status.value = status.value.copy(state = ConnectionState.CONNECTED, since = SystemClock.elapsedRealtime(), exitCountry = exit)
+                    status.value = status.value.copy(state = ConnectionState.CONNECTED, since = SystemClock.elapsedRealtime(), exitCountry = null)
                 }
                 getSystemService(NotificationManager::class.java).notify(1, notification("Подключено · ${profile.name}"))
-                reachedConnected = true
-                Diagnostics.log("connected · exit ${exit ?: "?"}")
+                Diagnostics.log("xray running, checking the tunnel")
                 observeNetworks(cm, attempt)
                 monitor = scope.launch {
+                    if (!settle(attempt)) {
+                        if (generation.get() == attempt) { lastFailure = "Нет связи через туннель после запуска Xray"; Diagnostics.log("connectivity check failed"); recover(attempt) }
+                        return@launch
+                    }
+                    reachedConnected = true
+                    val exit = country()
+                    if (generation.get() == attempt) status.update { it.copy(exitCountry = exit) }
+                    Diagnostics.log("connected · exit ${exit ?: "?"}")
                     val healthPolicy = TunnelHealthPolicy()
                     var ticks = 0
                     while (isActive && status.value.state == ConnectionState.CONNECTED) {
@@ -324,7 +347,7 @@ class KawaVpnService : VpnService() {
                         }
                     }
                 }
-            } else { lastFailure = "Нет связи через туннель после запуска Xray"; Diagnostics.log("connectivity check failed"); recover(attempt) }
+            } else { lastFailure = "Xray не запустился"; Diagnostics.log("xray failed to start"); recover(attempt) }
         } catch (e: Exception) { lastFailure = "${e.javaClass.simpleName}: ${e.message.orEmpty()}"; Diagnostics.log("connect failed: $lastFailure"); runCatching { session?.disconnect() }; runCatching { tun?.close() }; tun = null; recover(attempt) }
     }
     /** A dead tunnel is rebuilt up to twice (1.5 s, then 4 s later) before the error is shown. */
@@ -345,7 +368,7 @@ class KawaVpnService : VpnService() {
     private fun fail() {
         val kind = if (reachedConnected) "tunnel_stopped" else "connect_failed"
         Diagnostics.auto(kind, (if (reachedConnected) "Туннель упал и не восстановился после 2 переподключений" else "Не удалось подключиться после 2 попыток") + "\n" + lastFailure)
-        status.value = status.value.copy(state = ConnectionState.ERROR, error = "Нет доступа через туннель. Обновите подписку или выберите другой сервер.")
+        status.value = status.value.copy(state = ConnectionState.ERROR, error = FAIL_TEXT)
         stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }
     private fun disconnect(preserveError: Boolean = false, keepForeground: Boolean = false) {
@@ -368,6 +391,7 @@ class KawaVpnService : VpnService() {
     }
     override fun onRevoke() { invalidate(); scope.launch { disconnect(); stopSelf() } }
     override fun onDestroy() {
+        watchdog?.cancel()
         synchronized(transitionLock) { generation.incrementAndGet(); if (status.value.state != ConnectionState.ERROR && (engineOwner == null || engineOwner === this)) status.value = TunnelStatus() }
         activeCall?.cancel()
         // Cleanup is queued behind any in-flight native start, never run concurrently with it.
@@ -375,3 +399,13 @@ class KawaVpnService : VpnService() {
         super.onDestroy()
     }
 }
+
+/** The best non-VPN network with internet: what the phone would use without Kawa. */
+fun underlyingNetwork(cm: ConnectivityManager, excluded: Network? = null): Network? =
+    cm.allNetworks.filter { it != excluded }.mapNotNull { network ->
+        val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return@mapNotNull null
+        val score = (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 10 else 0) +
+            (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 2 else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) 3 else 0)
+        network to score
+    }.maxByOrNull { it.second }?.first

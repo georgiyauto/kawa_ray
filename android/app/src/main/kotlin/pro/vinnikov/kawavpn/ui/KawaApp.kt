@@ -108,25 +108,28 @@ internal val Glass: Brush get() = if (Palette.light) Brush.verticalGradient(list
                         }
                         val notices = screen.data.profiles.filter { pro.vinnikov.kawavpn.domain.ProfileNotice.of(it.profile) }.map { it.profile.name.trim() }.distinct()
                         if (notices.isNotEmpty() && !connected) SubscriptionNotice(notices) { page = 3 }
-                        Globe(tunnel, motion, Modifier.fillMaxWidth().height(globeHeight))
+                        val chosen = screen.data.profiles.firstOrNull { it.profile.id == screen.data.selected && !pro.vinnikov.kawavpn.domain.ProfileNotice.of(it.profile) }?.profile
+                        // Flag and name come from the server's own name in the config (🇳🇱 → Netherlands),
+                        // never from GeoIP of the exit address: hosting IPs are often registered elsewhere.
+                        // A multi-country entry (🇪🇺 «Авто-регион») keeps its own name.
+                        val configCode = countryCode(chosen?.name ?: tunnel.name)
+                        val plainName=(chosen?.name ?: tunnel.name).replace(Regex("[\\x{1F1E6}-\\x{1F1FF}]{2}|[\\x{1F300}-\\x{1FAFF}\\x{2600}-\\x{27BF}]\\x{FE0F}?"), "").trim()
+                        val singleCountry = configCode?.takeIf { it != "EU" && it != "UN" }
+                        Globe(tunnel.copy(exitCountry = singleCountry ?: tunnel.exitCountry), motion, Modifier.fillMaxWidth().height(globeHeight))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CountryFlag(tunnel.exitCountry ?: countryCode(screen.data.profiles.firstOrNull { it.profile.id == screen.data.selected && !pro.vinnikov.kawavpn.domain.ProfileNotice.of(it.profile) }?.profile?.name.orEmpty()))
+                            CountryFlag(configCode)
                             Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (connected) Green else Muted))
                             Text(when (tunnel.state) { ConnectionState.CONNECTED -> "ЗАЩИЩЕНО"; ConnectionState.CONNECTING -> "ПОДКЛЮЧЕНИЕ…"; else -> "НЕ ПОДКЛЮЧЕНО" }, color = if (connected) Green else Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.5.sp)
                         }
-                        val chosen = screen.data.profiles.firstOrNull { it.profile.id == screen.data.selected && !pro.vinnikov.kawavpn.domain.ProfileNotice.of(it.profile) }?.profile
-                        val destinationCode=tunnel.exitCountry ?: countryCode(chosen?.name.orEmpty())
-                        val plainName=(chosen?.name ?: tunnel.name).replace(Regex("[\\x{1F1E6}-\\x{1F1FF}]{2}|[\\x{1F300}-\\x{1FAFF}\\x{2600}-\\x{27BF}]\\x{FE0F}?"), "").trim()
-                        // As on the desktop: the server's name, the exit country once connected.
-                        val heading=(if (connected) tunnel.exitCountry?.let(::countryName) else null) ?: plainName.ifEmpty { "Выберите сервер" }
+                        val heading=plainName.ifEmpty { "Выберите сервер" }
                         DestinationTitle(heading)
-                        chosen?.let { Text((if(it.name!=heading) it.name+" · " else "")+profileProtocol(it.configJson),color=Muted,fontSize=12.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                        chosen?.let { Text(profileProtocol(it.configJson),color=Muted,fontSize=12.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
                         Row(Modifier.fillMaxWidth().heightIn(min=44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(countryName(tunnel.originCountry) ?: "Вы", fontSize=13.sp,color=Muted,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=72.dp))
                             Box(Modifier.weight(1f).height(1.dp).background(if (connected) Green else Border))
                             GlassButton(tunnel.latency?.let { "Пинг · $it мс" } ?: "Пинг", enabled = connected, height = 30.dp, fontSize = 12, onClick = ping)
-                            Text(countryName(destinationCode) ?: "Сервер",fontSize=12.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=80.dp))
-                            CountryFlag(tunnel.exitCountry ?: countryCode(chosen?.name.orEmpty()))
+                            Text(singleCountry?.let(::countryName) ?: plainName.ifEmpty { "Сервер" },fontSize=12.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=80.dp))
+                            CountryFlag(configCode)
                         }
                         Spacer(Modifier.height(4.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

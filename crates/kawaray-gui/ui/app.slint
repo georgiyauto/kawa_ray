@@ -2915,7 +2915,8 @@ export component AppWindow inherits Window {
     in-out property <int> settings-category: 0;
     in property <string> origin-country;
     in property <string> exit-country;
-    property <string> globe-destination-country: root.exit-country != "" ? root.exit-country : root.destination-country;
+    // The configured country (server name flag) wins over GeoIP of the exit; only a multi-country entry (🇪🇺 Авто-регион) uses the measured exit.
+    property <string> globe-destination-country: root.destination-country != "" && root.destination-country != "EU" ? root.destination-country : root.exit-country;
     property <bool> globe-same-country: root.origin-country == root.globe-destination-country;
     in property <string> exit-label;
     in property <string> origin-label: "Ваше устройство";
@@ -3315,7 +3316,7 @@ export component AppWindow inherits Window {
                         canvas-width: root.width - 20px;
                         name: root.selected-name;
                         protocol: root.selected-protocol;
-                        flag: root.conn-state == "connected" && root.exit-has-flag ? root.exit-flag : root.selected-flag; has-flag: root.conn-state == "connected" && root.exit-has-flag ? true : root.selected-has-flag;
+                        flag: root.selected-flag; has-flag: root.selected-has-flag;
                         connected: root.conn-state == "connected";
                         state: root.conn-title;
                         detail: root.conn-detail;
@@ -3329,7 +3330,7 @@ export component AppWindow inherits Window {
                         traffic-down: root.transfer-down; traffic-up: root.transfer-up;
                         statistics: false;
                         route-note: root.conn-state != "connected" ? "" : root.origin-country == "" ? root.origin-status : root.globe-destination-country == "" ? "Страна выхода не определена" : root.globe-same-country ? "Устройство и выход в одной стране" : "";
-                        globe: root.globe-image; origin: root.origin-label; destination: root.conn-state == "connected" && root.exit-label != "" ? root.exit-label : root.destination-label;
+                        globe: root.globe-image; origin: root.origin-label; destination: root.destination-label;
                         globe-drag(x,y,down) => { root.globe-drag(x,y,down); }
                         globe-home => { root.globe-home(); }
                         connect-label: root.conn-state == "connected" ? "Отключиться" : root.conn-state == "connecting" ? "Подключение…" : root.conn-state == "disconnecting" ? "Отключение…" : root.can-connect ? "Подключиться" : root.current-sub < 0 ? "Войти через бота" : "Выберите сервер";

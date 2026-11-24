@@ -589,7 +589,25 @@ fn recover_session(data: &Path) {
     let path = data.join("last-session.json");
     if let Ok(bytes) = std::fs::read(&path) {
         if let Ok(mut report) = serde_json::from_slice::<Value>(&bytes) {
+            let native = std::fs::read(data.join("native-exception.bin")).ok().filter(|c| c.len() == 4);
+            // Not a fault of this app, so no report: an installer replaced it
+            // (taskkill /F, the next start is a newer version), or the whole
+            // system went down (power loss, forced reboot) since the marker.
+            let replaced = report["version"].as_str().is_some_and(|v| v != env!("CARGO_PKG_VERSION"));
+            let rebooted = std::fs::metadata(&path).and_then(|m| m.modified()).ok().zip(boot_time()).is_some_and(|(marker, boot)| boot > marker);
+            if native.is_none() && (replaced || rebooted) {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
             if report["privacy"]["device_info_and_ip"] == true {
+                // Windows logs why a GUI died when it knows: "not responding" (1002) or a fault (1000).
+                if native.is_none() {
+                    let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok());
+                    if let Some(events) = age.and_then(|age| exit_events(age + std::time::Duration::from_secs(600))) {
+                        if events.contains("Event ID: 1002") { report["kind"] = json!("app_hang"); }
+                        report["windows_events"] = json!(events);
+                    }
+                }
                 if let Ok(code) = std::fs::read(data.join("native-exception.bin")) {
                     if let Ok(code) = <[u8; 4]>::try_from(code.as_slice()) {
                         report["kind"] = json!("native_crash");
@@ -604,6 +622,36 @@ fn recover_session(data: &Path) {
         }
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// Application-log events about KawaVPN.exe in the last `window`: hangs and faults.
+#[cfg(windows)]
+fn exit_events(window: std::time::Duration) -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    let query = format!("*[System[(EventID=1000 or EventID=1002) and TimeCreated[timediff(@SystemTime) <= {}]]]", window.as_millis());
+    let out = std::process::Command::new("wevtutil.exe")
+        .args(["qe", "Application", &format!("/q:{query}"), "/f:text", "/c:20", "/rd:true"])
+        .creation_flags(0x08000000).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let ours: Vec<String> = text.split("Event[").filter(|e| e.to_ascii_lowercase().contains("kawavpn.exe"))
+        .take(3).map(|e| sanitize(e.trim()).chars().take(1200).collect()).collect();
+    (!ours.is_empty()).then(|| ours.join("
+---
+"))
+}
+#[cfg(not(windows))]
+fn exit_events(_window: std::time::Duration) -> Option<String> { None }
+
+/// When the OS last started, for telling a system reboot from an app crash.
+#[cfg(windows)]
+fn boot_time() -> Option<std::time::SystemTime> {
+    let up = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    std::time::SystemTime::now().checked_sub(std::time::Duration::from_millis(up))
+}
+#[cfg(not(windows))]
+fn boot_time() -> Option<std::time::SystemTime> {
+    let up: f64 = std::fs::read_to_string("/proc/uptime").ok()?.split_whitespace().next()?.parse().ok()?;
+    std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs_f64(up))
 }
 
 pub fn snapshot_background() {
@@ -891,6 +939,32 @@ mod tests {
         assert_eq!(report["exception_code"], "0xC0000005");
         assert_eq!(report["kind"], "native_crash");
         assert_eq!(report["device"]["model"], "test");
+        std::fs::remove_dir_all(data).unwrap();
+    }
+
+    #[test]
+    fn exit_by_installer_or_reboot_is_not_a_crash() {
+        let data = std::env::temp_dir().join(format!("kawa-recovery-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(data.join("reports")).unwrap();
+        let marker = |version: &str| {
+            let report = json!({"report_id":"KW-0123456789ABCDEF","version":version,"privacy":{"device_info_and_ip":true},"log":"x"});
+            std::fs::write(data.join("last-session.json"), serde_json::to_vec(&report).unwrap()).unwrap();
+        };
+        // An older version was force-closed by the installer of this one.
+        marker("0.0.1");
+        recover_session(&data);
+        assert!(!data.join("last-session.json").exists());
+        assert_eq!(std::fs::read_dir(data.join("reports")).unwrap().count(), 0);
+        // The marker predates the last OS start: the system went down.
+        marker(env!("CARGO_PKG_VERSION"));
+        let before_boot = boot_time().unwrap() - Duration::from_secs(60);
+        std::fs::File::options().write(true).open(data.join("last-session.json")).unwrap().set_modified(before_boot).unwrap();
+        recover_session(&data);
+        assert_eq!(std::fs::read_dir(data.join("reports")).unwrap().count(), 0);
+        // Same version, same boot: a real unexpected exit is still reported.
+        marker(env!("CARGO_PKG_VERSION"));
+        recover_session(&data);
+        assert_eq!(std::fs::read_dir(data.join("reports")).unwrap().count(), 1);
         std::fs::remove_dir_all(data).unwrap();
     }
 

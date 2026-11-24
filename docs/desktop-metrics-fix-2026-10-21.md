@@ -18,4 +18,4 @@ Verification pending:
 4. Verify the active-tunnel request and stale reply handling without disconnecting the owner's VPN.
 5. Package and verify the installer before publishing the previously authorized public update.
 
-Blocker at 22:12 Moscow time: Germany host 204.11.2.178 stopped answering SSH and VPN ports again, also from the independent Netherlands host. The final refinements are local and have not been rebuilt. Do not publish the previous intermediate installer or describe these changes as released.
+Blocker at 22:12 Moscow time: Germany host 203.0.113.18 stopped answering SSH and VPN ports again, also from the independent Netherlands host. The final refinements are local and have not been rebuilt. Do not publish the previous intermediate installer or describe these changes as released.

@@ -1,5 +1,5 @@
 {
-  "version": "0.4.38",
+  "version": "0.4.40",
   "algorithm": "sha256",
   "files": {
     ".cargo/config.toml": "f62cc06416229f243a5806ceb14ff6e622b821643a55be16302f810e9b0bf45d",

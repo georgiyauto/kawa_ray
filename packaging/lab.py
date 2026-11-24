@@ -193,9 +193,9 @@ def main():
     import paramiko
     sock=socket.socket();sock.settimeout(25)
     if sys.platform=='win32': sock.setsockopt(socket.IPPROTO_IP,31,struct.pack('!I',3))
-    sock.connect(('204.11.2.178',22222))
+    sock.connect(('203.0.113.18',22222))
     c=paramiko.SSHClient();c.load_host_keys(str(a.known_hosts));c.set_missing_host_key_policy(paramiko.RejectPolicy())
-    c.connect('212.80.221.94',port=22222,username='vpnadmin',key_filename=str(a.ssh_key),sock=sock,banner_timeout=45,auth_timeout=20)
+    c.connect('203.0.113.17',port=22222,username='vpnadmin',key_filename=str(a.ssh_key),sock=sock,banner_timeout=45,auth_timeout=20)
     cfg={'action':a.action,'run_id':a.run_id,'platform':a.platform,'reset_stage':a.reset_stage}
     remote='/home/vpnadmin/kawa-multiplatform-0.4.26'
     if a.action in ('prepare','refresh'):

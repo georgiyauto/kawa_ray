@@ -55,7 +55,7 @@ def main():
     p.add_argument('--notes', default='Обновление Kawa VPN')
     p.add_argument('--build-id', help='Exact KAWA_BUILD embedded by the artifact build machine')
     p.add_argument('--interface-index', type=int, default=0, help='Windows physical adapter index for SSH while VPN is active')
-    p.add_argument('--ssh-host', default='204.11.2.178', help='Germany update server address')
+    p.add_argument('--ssh-host', default='203.0.113.10', help='Germany update server address')
     p.add_argument('--windows-stage', required=True, help='Exact stage directory packaged in this installer, with trusted Authenticode signatures')
     p.add_argument('--allow-unsigned-publisher', action='store_true', help='Explicit owner approval to publish without Windows publisher signing; Ed25519 verification stays mandatory')
     p.add_argument('--linux-appimage', help='Optional verified Linux x86_64 AppImage of the same version')
@@ -102,8 +102,8 @@ def main():
     if args.interface_index:
         sock=socket.socket();sock.settimeout(20)
         sock.setsockopt(socket.IPPROTO_IP,31,struct.pack('!I',args.interface_index))
-        sock.connect((args.ssh_host,22222))
-    c.connect(args.ssh_host, port=22222, username='vpnadmin', key_filename=args.ssh_key, sock=sock, timeout=20, banner_timeout=45, auth_timeout=20)
+        sock.connect((args.ssh_host,22))
+    c.connect(args.ssh_host, port=22, username='vpnadmin', key_filename=args.ssh_key, sock=sock, timeout=20, banner_timeout=45, auth_timeout=20)
     temp = '/home/vpnadmin/kawa-release-'+args.version
     _,o,e=c.exec_command('install -d -m 700 '+shlex.quote(temp),timeout=10)
     if o.channel.recv_exit_status():raise RuntimeError('release staging failed')

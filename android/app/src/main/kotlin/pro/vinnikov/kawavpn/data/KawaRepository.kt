@@ -26,6 +26,15 @@ class KawaRepository(context: Context,
     private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS).build()
     private val base = "https://cabinet.example.com/api/cabinet"
+    private val connectivity = context.applicationContext.getSystemService(android.net.ConnectivityManager::class.java)
+    /** While the tunnel is still coming up (or has failed) every app socket goes into it and dies with a DNS error, so cabinet
+     *  and subscription requests use the phone's own network until the VPN is really connected. */
+    private fun client(): OkHttpClient {
+        val state = pro.vinnikov.kawavpn.vpn.KawaVpnService.status.value.state
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.DISCONNECTED) return http
+        val network = connectivity?.let { pro.vinnikov.kawavpn.vpn.underlyingNetwork(it) } ?: return http
+        return http.newBuilder().socketFactory(network.socketFactory).dns(Dns { name -> network.getAllByName(name).toList() }).build()
+    }
     private fun bounded(input: InputStream, limit: Int): ByteArray {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(8192)
@@ -50,7 +59,7 @@ class KawaRepository(context: Context,
                 override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
             })
         }
-        return http.newCall(builder.build()).execute().use { response ->
+        return client().newCall(builder.build()).execute().use { response ->
             checkCabinetStatus(response.code)
             val raw = response.body?.byteStream()?.let { bounded(it, 256 * 1024) } ?: byteArrayOf()
             require(raw.size <= 256 * 1024) { "Слишком большой ответ кабинета" }
@@ -164,7 +173,7 @@ class KawaRepository(context: Context,
                     builder.header("x-hwid", identity.deviceId).header("x-device-os", "Android")
                         .header("x-ver-os", android.os.Build.VERSION.RELEASE).header("x-device-model", android.os.Build.MODEL)
                 }
-                http.newCall(builder.build()).execute().use { response ->
+                client().newCall(builder.build()).execute().use { response ->
                     if(response.code in setOf(301,302,303,307,308)) {
                         require(hop < 3) { "Слишком много перенаправлений" }
                         current = NetworkContract.subscriptionUrl(response.request.url.resolve(response.header("Location") ?: error("Нет адреса перенаправления"))?.toString() ?: error("Неверный адрес"))

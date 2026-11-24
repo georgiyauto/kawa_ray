@@ -339,7 +339,9 @@ fn apply(ui: &AppWindow, app: &Shared) {
                         show(&ui, &st.update);
                     }
                     Err(e) => {
-                        diag::auto("update_install", &format!("{e:#}"));
+                        if !format!("{e:#}").contains(update::UAC_DECLINED) {
+                            diag::auto("update_install", &format!("{e:#}"));
+                        }
                         ui.set_update_info(
                             format!("Не удалось установить обновление: {e:#}").into(),
                         );

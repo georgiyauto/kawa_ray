@@ -1013,6 +1013,38 @@ fn main() -> anyhow::Result<()> {
             });
         });
     }
+    // Site screenshots (dev): KAWA_SITE_SHOTS=prefix with an isolated KAWA_STORE copy.
+    // Each screen in the dark and the light theme at 1280×800; never connects.
+    if let Some(prefix) = std::env::var_os("KAWA_SITE_SHOTS") {
+        ui.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
+        let prefix = PathBuf::from(prefix);
+        // (theme mode, screen): 0 home, 1 servers, 2 statistics, 3 settings, 4 subscriptions, 5 appearance, 6 routing
+        let steps: Vec<(i32, i32)> = [1, 2].iter().flat_map(|t| (0..7).map(move |s| (*t, s))).collect();
+        fn show(ui: &AppWindow, (theme, screen): (i32, i32)) {
+            ui.set_theme_mode(theme);
+            ui.set_routing_open(screen == 6);
+            ui.set_settings_open(false);
+            match screen {
+                0..=2 => ui.set_view_page(screen),
+                3..=5 => { ui.invoke_open_settings(); ui.set_settings_category(match screen { 3 => 0, 4 => 1, _ => 2 }); ui.set_settings_open(true); }
+                _ => {}
+            }
+        }
+        fn next(weak: Weak<AppWindow>, prefix: PathBuf, steps: std::rc::Rc<Vec<(i32, i32)>>, index: usize) {
+            let Some(ui) = weak.upgrade() else { return; };
+            if index > 0 {
+                let (theme, screen) = steps[index - 1];
+                let names = ["home", "servers", "statistics", "settings", "subscriptions", "appearance", "routing"];
+                snapshot(ui.window(), &prefix.with_extension(format!("{}.{}.png", if theme == 1 { "dark" } else { "light" }, names[screen as usize])));
+            }
+            let Some(&step) = steps.get(index) else { let _ = slint::quit_event_loop(); return; };
+            show(&ui, step);
+            slint::Timer::single_shot(std::time::Duration::from_millis(1600), move || next(weak, prefix, steps, index + 1));
+        }
+        let weak = ui.as_weak();
+        let steps = std::rc::Rc::new(steps);
+        slint::Timer::single_shot(std::time::Duration::from_secs(3), move || next(weak, prefix, steps, 0));
+    }
     // Native header click regression with the isolated real store; never connects.
     if let Some(folder)=std::env::var_os("KAWA_ROUTING_QA") {
         fn click_routing(ui:&AppWindow) {
@@ -1816,7 +1848,8 @@ fn render(ui: &AppWindow, st: &App) {
     if let Some(server)=active {
         let (country,name)=display_name(&server.name);let image=country.as_deref().and_then(flag_image);
         ui.set_destination_country(country.as_deref().unwrap_or("").into());
-        ui.set_destination_label(country.as_deref().and_then(globe::region).map(|(name,_,_)|name).unwrap_or("Автовыбор").into());
+        // A country the globe knows by its flag, otherwise the entry's own name (🇪🇺 «Авто-регион»).
+        ui.set_destination_label(country.as_deref().and_then(globe::region).map(|(name,_,_)|name.to_string()).unwrap_or_else(||name.clone()).into());
         ui.set_selected_protocol(format!("{} · {}", server.protocol.to_uppercase(), transport(&server.network,&server.security)).into());
         ui.set_selected_name(name.into());ui.set_selected_endpoint(format!("{}:{}",server.address,server.port).into());ui.set_selected_has_flag(image.is_some());ui.set_selected_flag(image.unwrap_or_default());
     } else {ui.set_selected_name("Сервер не выбран".into());ui.set_selected_endpoint("Выберите сервер из списка".into());ui.set_selected_has_flag(false);}

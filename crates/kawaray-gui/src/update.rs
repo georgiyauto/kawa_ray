@@ -301,6 +301,9 @@ pub fn install(file: &Path, how: &Install) -> Result<()> {
     }
 }
 
+/// The user declined elevation: not an error worth a report.
+pub const UAC_DECLINED: &str = "установка отменена: Windows не получила разрешение администратора. Нажмите «Установить» ещё раз и ответьте «Да» в запросе";
+
 #[cfg(windows)]
 fn run_setup(file: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -323,6 +326,10 @@ fn run_setup(file: &Path) -> Result<()> {
             SW_SHOWNORMAL,
         )
     };
+    // 5: the UAC prompt was answered "No" (or admin rights are not allowed).
+    if r as isize == 5 {
+        bail!("{UAC_DECLINED}");
+    }
     if r as isize <= 32 {
         bail!("установщик не запустился (код {})", r as isize);
     }

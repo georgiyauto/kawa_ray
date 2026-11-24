@@ -371,7 +371,7 @@ mod tests {
     }
     #[test]
     fn windows_proxy_ip_does_not_bypass_browser_traffic_to_colocated_panel() {
-        let endpoints = vec!["212.80.221.94".parse().unwrap()];
+        let endpoints = vec!["203.0.113.17".parse().unwrap()];
         let routes = super::tunnel_bypass(&endpoints);
         if cfg!(windows) {
             assert!(routes.is_empty(), "global /32 route leaks panel API outside VPN");

@@ -5,7 +5,7 @@ android {
     defaultConfig {
         applicationId = "pro.vinnikov.kawavpn"
         minSdk = 26; targetSdk = 37
-        versionCode = 438; versionName = "0.4.38"
+        versionCode = 440; versionName = "0.4.40"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

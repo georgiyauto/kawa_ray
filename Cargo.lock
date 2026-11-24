@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "kawaray-core"
-version = "0.4.38"
+version = "0.4.40"
 dependencies = [
  "anyhow",
  "base64",
@@ -2769,7 +2769,7 @@ dependencies = [
 
 [[package]]
 name = "kawaray-gui"
-version = "0.4.38"
+version = "0.4.40"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "kawaray-helper"
-version = "0.4.38"
+version = "0.4.40"
 dependencies = [
  "anyhow",
  "kawaray-core",
